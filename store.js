@@ -169,13 +169,8 @@ async function seedGobstore(client) {
     } catch (err) {}
 }
 
-// --- 11 Live Storage Bucket Garments Catalog Definition ---
+// --- Live Storage Bucket Garments Catalog Definition (Apparel Only) ---
 const STORAGE_BUCKET_GARMENTS = [
-    { id: 'grm-1', title: 'Classic Shoe', category: 'Footwear', price: 95.00, file: 'classic sheo.jfif', anywearModelId: 'grm-1' },
-    { id: 'grm-2', title: 'Classic Shoe II', category: 'Footwear', price: 98.00, file: 'classic sheo2.jfif', anywearModelId: 'grm-2' },
-    { id: 'grm-3', title: 'Oxford Shoe I', category: 'Footwear', price: 89.00, file: 'sheo 1.jfif', anywearModelId: 'grm-3' },
-    { id: 'grm-4', title: 'Leather Shoe II', category: 'Footwear', price: 92.00, file: 'sheo2.jfif', anywearModelId: 'grm-4' },
-    { id: 'grm-5', title: 'Formal Shoe III', category: 'Footwear', price: 96.00, file: 'sheo3.jfif', anywearModelId: 'grm-5' },
     { id: 'grm-6', title: 'Tailored Shirt', category: 'Shirts', price: 55.00, file: 'shrit.jfif', anywearModelId: 'grm-6' },
     { id: 'grm-7', title: 'Classic Button-Up Shirt II', category: 'Shirts', price: 58.00, file: 'shirt2.jfif', anywearModelId: 'grm-7' },
     { id: 'grm-8', title: 'Formal Dress Shirt III', category: 'Shirts', price: 62.00, file: 'shirt3.jfif', anywearModelId: 'grm-8' },
@@ -183,6 +178,31 @@ const STORAGE_BUCKET_GARMENTS = [
     { id: 'grm-10', title: 'Chino Trousers II', category: 'Pants', price: 68.00, file: 'pants 2.jfif', anywearModelId: 'grm-10' },
     { id: 'grm-11', title: 'Formal Trousers III', category: 'Pants', price: 72.00, file: 'pants3.jfif', anywearModelId: 'grm-11' }
 ];
+
+// Helper: Filter out any footwear or shoe items
+function isFootwearItem(item) {
+    if (!item) return false;
+    const cat = String(item.category || '').toLowerCase();
+    const title = String(item.title || item.name || '').toLowerCase();
+    const file = String(item.file || item.image_url || item.image || item.photo || '').toLowerCase();
+    const id = String(item.id || '').toLowerCase();
+
+    return (
+        cat.includes('footwear') ||
+        cat.includes('shoe') ||
+        cat.includes('sneaker') ||
+        cat.includes('boot') ||
+        cat.includes('loafer') ||
+        title.includes('shoe') ||
+        title.includes('oxford') ||
+        title.includes('footwear') ||
+        title.includes('leather shoe') ||
+        title.includes('loafer') ||
+        file.includes('sheo') ||
+        file.includes('shoe') ||
+        ['grm-1', 'grm-2', 'grm-3', 'grm-4', 'grm-5'].includes(id)
+    );
+}
 
 // --- Seed garments table in Supabase directly from public storage bucket ---
 async function syncStorageGarmentsToDatabase(client, storeId = GOBSTORE_UUID) {
@@ -198,6 +218,12 @@ async function syncStorageGarmentsToDatabase(client, storeId = GOBSTORE_UUID) {
     }));
 
     if (client) {
+        try {
+            await client.from('garments').delete().in('id', ['grm-1', 'grm-2', 'grm-3', 'grm-4', 'grm-5']);
+            await client.from('garments').delete().ilike('category', '%footwear%');
+            await client.from('garments').delete().ilike('title', '%shoe%');
+        } catch (e) {}
+
         try {
             const { data, error } = await client.from('garments').upsert(rows, { onConflict: 'id' }).select();
             if (!error && data && data.length > 0) {
@@ -317,35 +343,42 @@ async function fetchAndRenderGarments() {
         }
     }
 
-    // If Supabase returned no rows, automatically sync the 11 storage bucket garments into the table
+    // Exclude any footwear or shoe items from query results
+    if (Array.isArray(dbGarments)) {
+        dbGarments = dbGarments.filter(g => !isFootwearItem(g));
+    }
+
+    // If Supabase returned no rows, automatically sync the apparel storage bucket garments into the table
     if (!dbGarments || dbGarments.length === 0) {
         dbGarments = await syncStorageGarmentsToDatabase(client, currentShop.id);
     }
 
-    // Map database rows into structured storefront models
-    storeGarments = dbGarments.map((g, idx) => {
-        const rawImg = g.image_url || g.image || g.img_url || g.photo;
-        const resolvedImg = resolveGarmentImageUrl(rawImg, g.category);
-        const resolvedPrice = parseFloat(g.price) || 49.99;
-        const resolvedId = String(g.id || `grm-${idx + 1}`);
+    // Map database rows into structured storefront models (Strictly Apparel: Shirts, Pants, Outerwear)
+    storeGarments = dbGarments
+        .filter(g => !isFootwearItem(g))
+        .map((g, idx) => {
+            const rawImg = g.image_url || g.image || g.img_url || g.photo;
+            const resolvedImg = resolveGarmentImageUrl(rawImg, g.category);
+            const resolvedPrice = parseFloat(g.price) || 49.99;
+            const resolvedId = String(g.id || `grm-${idx + 6}`);
 
-        return {
-            id: resolvedId,
-            dbId: g.id,
-            storeId: g.store_id || g.shop_id || currentShop.id,
-            title: g.title || g.name || 'Signature Apparel',
-            category: g.category || 'Apparel',
-            price: resolvedPrice,
-            originalPrice: g.original_price ? parseFloat(g.original_price) : (resolvedPrice * 1.25),
-            discount: g.discount || (idx % 2 === 0 ? '-20%' : null),
-            rating: g.rating ? parseFloat(g.rating) : 4.9,
-            reviews: g.reviews ? parseInt(g.reviews, 10) : (42 + (idx * 11)),
-            colors: g.colors && Array.isArray(g.colors) ? g.colors : ['#111111', '#c49a6c', '#4b5563'],
-            image: resolvedImg,
-            anywearModelId: g.anywear_model_id || g.anywearModelId || resolvedId,
-            arUrl: g.ar_url || `https://anywear.decart.ai/virtual-try-on?model=${encodeURIComponent(g.anywear_model_id || resolvedId)}`
-        };
-    });
+            return {
+                id: resolvedId,
+                dbId: g.id,
+                storeId: g.store_id || g.shop_id || currentShop.id,
+                title: g.title || g.name || 'Signature Apparel',
+                category: g.category || 'Apparel',
+                price: resolvedPrice,
+                originalPrice: g.original_price ? parseFloat(g.original_price) : (resolvedPrice * 1.25),
+                discount: g.discount || (idx % 2 === 0 ? '-20%' : null),
+                rating: g.rating ? parseFloat(g.rating) : 4.9,
+                reviews: g.reviews ? parseInt(g.reviews, 10) : (42 + (idx * 11)),
+                colors: g.colors && Array.isArray(g.colors) ? g.colors : ['#111111', '#c49a6c', '#4b5563'],
+                image: resolvedImg,
+                anywearModelId: g.anywear_model_id || g.anywearModelId || resolvedId,
+                arUrl: g.ar_url || `https://anywear.decart.ai/virtual-try-on?model=${encodeURIComponent(g.anywear_model_id || resolvedId)}`
+            };
+        });
 
     // If specific garmentId is in URL, bring that item to the very top
     if (garmentId) {
@@ -820,15 +853,15 @@ if (typeof window !== 'undefined') {
     window.openTryOnModal = openTryOnModal;
 }
 
-// Category Filter Helper
+// Category Filter Helper (Apparel Only)
 function filterCategory(cat) {
     if (!cat || cat === 'ALL') {
-        storeGarments = [...allStoreGarments];
+        storeGarments = allStoreGarments.filter(g => !isFootwearItem(g));
     } else {
         const filtered = allStoreGarments.filter(g => 
-            g.category && g.category.toLowerCase().includes(cat.toLowerCase())
+            !isFootwearItem(g) && g.category && g.category.toLowerCase().includes(cat.toLowerCase())
         );
-        storeGarments = filtered.length > 0 ? filtered : allStoreGarments;
+        storeGarments = filtered.length > 0 ? filtered : allStoreGarments.filter(g => !isFootwearItem(g));
     }
     renderStoreProducts();
 }
