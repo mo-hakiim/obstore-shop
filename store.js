@@ -393,13 +393,9 @@ function renderStoreProducts() {
         const modelId = item.anywearModelId || item.id;
 
         return `
-        <div id="product-card-${item.id}" class="product-card ${isTarget ? 'garment-focused' : ''}" data-product-id="${item.id}" data-model-id="${modelId}" onclick="launchVirtualTryOn('${item.id}', '${modelId}')" style="cursor: pointer;" title="Click to try on ${item.title}">
+        <div id="product-card-${item.id}" class="product-card ${isTarget ? 'garment-focused' : ''}" data-product-id="${item.id}" data-model-id="${modelId}">
             <div class="product-img-wrap" style="position: relative;">
                 ${item.discount ? `<span class="discount-badge">${item.discount}</span>` : ''}
-                
-                <button type="button" class="tryon-badge-btn" onclick="event.stopPropagation(); launchVirtualTryOn('${item.id}', '${modelId}')" title="3D Virtual Try-On">
-                    <i class="fa-solid fa-cube"></i> Try On
-                </button>
 
                 <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')">
                     <i class="fa-regular fa-heart"></i>
@@ -435,48 +431,17 @@ function renderStoreProducts() {
                     ${item.colors.map(c => `<span class="color-dot" style="background-color: ${c}"></span>`).join('')}
                 </div>
 
-                <div style="display: flex; gap: 8px; margin-top: 10px;">
-                    <button type="button" class="tryon-btn-action" onclick="event.stopPropagation(); launchVirtualTryOn('${item.id}', '${modelId}')" style="flex: 1; padding: 10px 14px; border-radius: 8px; background: #111111; color: #ffffff; border: none; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
-                        <i class="fa-solid fa-cube" style="color: #c49a6c;"></i> Try On
-                    </button>
-                    <a href="${waLink}" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn" style="flex: 1; margin-top: 0;">
-                        <i class="fa-brands fa-whatsapp"></i> Inquire
-                    </a>
-                </div>
+                <a href="${waLink}" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn">
+                    <i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp
+                </a>
             </div>
         </div>
         `;
     }).join('');
-
-    attachTryOnEventListeners();
-}
-
-// Attach explicit click listeners to product cards and try-on buttons
-function attachTryOnEventListeners() {
-    const cards = document.querySelectorAll('.product-card');
-    cards.forEach(card => {
-        const pId = card.getAttribute('data-product-id') || card.id.replace('product-card-', '');
-        const mId = card.getAttribute('data-model-id') || pId;
-        
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.whatsapp-inquire-btn') || e.target.closest('.wishlist-btn') || e.target.closest('.tryon-badge-btn') || e.target.closest('.tryon-btn-action')) {
-                return;
-            }
-            launchVirtualTryOn(pId, mId);
-        });
-
-        const tryBtns = card.querySelectorAll('.tryon-badge-btn, .tryon-btn-action');
-        tryBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                launchVirtualTryOn(pId, mId);
-            });
-        });
-    });
 }
 
 // ==========================================================================
-// Lead Capture Gate & 3D Virtual Try-On Session Engine
+// Lead Capture Gate & Display Logic
 // ==========================================================================
 
 // Render Scanned Garment Spotlight View (Requirement: Scanned Garment Spotlight View)
@@ -503,8 +468,11 @@ function renderSpotlightView(garmentId) {
     if (productsSection) productsSection.style.display = 'none';
     if (heroSection) heroSection.style.display = 'none';
 
+    const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering: ${targetGarment.title} ($${targetGarment.price.toFixed(2)}).`);
+    const waLink = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
+
     // Render ONLY the scanned garment prominently (clean UI: image, title, price, no custom try-on buttons)
-    // The external Anywear widget will automatically recognize and overlay on the image.
+    // The official Anywear live widget will automatically recognize and overlay on the image.
     spotlightContainer.innerHTML = `
         <div class="spotlight-card" style="width: 100%; max-width: 480px; margin: 0 auto; text-align: center;">
             <div style="font-size: 11px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #c49a6c; margin-bottom: 8px;">
@@ -519,16 +487,19 @@ function renderSpotlightView(garmentId) {
                 $${targetGarment.price.toFixed(2)}
             </p>
 
-            <div style="width: 100%; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative; cursor: pointer;" onclick="launchVirtualTryOn('${targetGarment.id}', '${targetGarment.anywearModelId || targetGarment.id}')">
+            <div style="width: 100%; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative;">
                 <img id="spotlight-garment-image" 
                      src="${targetGarment.image}" 
                      alt="${targetGarment.title}" 
                      style="width: 100%; height: auto; max-height: 520px; object-fit: cover; display: block;"
                      onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
             </div>
-            <button type="button" class="spotlight-tryon-btn" onclick="launchVirtualTryOn('${targetGarment.id}', '${targetGarment.anywearModelId || targetGarment.id}')" style="margin-top: 18px; padding: 14px 28px; border-radius: 12px; background: #111111; color: #ffffff; border: none; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); transition: transform 0.2s;">
-                <i class="fa-solid fa-cube" style="color: #c49a6c;"></i> Launch 3D Virtual Try-On
-            </button>
+
+            <div style="margin-top: 20px;">
+                <a href="${waLink}" target="_blank" class="whatsapp-inquire-btn" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 28px; border-radius: 12px; font-size: 13px; font-weight: 700; text-decoration: none;">
+                    <i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp
+                </a>
+            </div>
         </div>
     `;
 
@@ -815,111 +786,25 @@ function postLeadToWebhook(leadData) {
 }
 
 // ==========================================================================
-// Anywear 3D Virtual Try-On Engine (Modal Controls & Dynamic Iframe Injection)
+// Official Anywear Live Widget Integration & Compatibility Handlers
 // ==========================================================================
 
 /**
- * Launch Anywear 3D Virtual Try-On Session.
- * Displays overlay modal and injects dynamic iframe with camera & fullscreen permissions.
- * @param {string} productId - Product identifier
- * @param {string} anywearModelId - Anywear 3D model identifier
+ * Official Anywear Live Widget Integration.
+ * Script: https://anywear.decart.ai/widget/latest/anywear.js?domain=mo-hakiim.github.io
+ * The Anywear widget dynamically injects its native AI Fitting Room button
+ * directly onto product cards and spotlight images.
  */
 function launchVirtualTryOn(productId, anywearModelId) {
-    const modal = document.getElementById('tryon-modal');
-    const viewerContainer = document.getElementById('tryon-viewer-container');
-    const titleEl = document.getElementById('tryon-item-name');
-
-    // Resolve anywearModelId or fallback to productId
-    const resolvedModelId = (anywearModelId !== undefined && anywearModelId !== null && String(anywearModelId).trim() !== '')
-        ? anywearModelId
-        : (productId || 'default');
-
-    // Update item title if available in current collection
-    let itemName = 'Anywear 3D Virtual Try-On';
-    if (productId && typeof storeGarments !== 'undefined' && Array.isArray(storeGarments)) {
-        const found = storeGarments.find(g => String(g.id) === String(productId));
-        if (found && found.title) {
-            itemName = `Anywear 3D AR — ${found.title}`;
-        }
-    }
-    if (titleEl) {
-        titleEl.textContent = itemName;
-    }
-
-    // Dynamic iframe injection into #tryon-viewer-container with camera & full-screen permissions
-    const iframeUrl = `https://anywear.decart.ai/virtual-try-on?model=${resolvedModelId}`;
-    if (viewerContainer) {
-        viewerContainer.innerHTML = `<iframe id="tryon-iframe" src="${iframeUrl}" allow="camera; fullscreen; xr-spatial-tracking" style="width: 100%; height: 100%; border: none; display: block;" title="Anywear 3D Virtual Try-On"></iframe>`;
-    }
-
-    // Display the modal
-    if (modal) {
-        modal.classList.add('active');
-        modal.style.display = 'flex';
-    }
-
-    // Telemetry and background session tracking
-    try {
-        const now = new Date();
-        const dateFormatted = now.toISOString().slice(0, 10) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const userName = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('moda_user_name')) || 'Try-On Shopper';
-        const userPhone = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('moda_user_phone')) || (typeof currentShop !== 'undefined' && currentShop.phone) || '';
-
-        const storedLogs = (typeof localStorage !== 'undefined' && JSON.parse(localStorage.getItem('labis_logs') || '[]')) || [];
-        storedLogs.unshift({
-            id: 'log-' + Date.now(),
-            type: 'LEAD',
-            message: `Virtual Try-On activated: ${itemName} (Model: ${resolvedModelId})`,
-            timestamp: dateFormatted,
-            status: 'success'
-        });
-        if (typeof localStorage !== 'undefined') localStorage.setItem('labis_logs', JSON.stringify(storedLogs));
-
-        if (typeof postLeadToSupabase === 'function' && typeof currentShop !== 'undefined' && currentShop.id) {
-            const tryonLead = {
-                full_name: userName,
-                whatsapp_number: userPhone,
-                store_id: getValidStoreId(currentShop.id)
-            };
-            postLeadToSupabase(tryonLead).catch(() => {});
-            if (typeof postLeadToWebhook === 'function') {
-                postLeadToWebhook({
-                    ...tryonLead,
-                    shop: currentShop.name,
-                    product_id: productId,
-                    anywear_model_id: resolvedModelId,
-                    date: dateFormatted
-                });
-            }
-        }
-    } catch (e) {
-        console.warn('Try-on telemetry notice:', e);
+    console.log(`Anywear Live Widget activated for product ${productId || anywearModelId}`);
+    if (window.Anywear && typeof window.Anywear.open === 'function') {
+        window.Anywear.open({ productId: productId || anywearModelId });
     }
 }
 
-/**
- * Close Anywear 3D Virtual Try-On Modal.
- * Hides modal and clears iframe source to cleanly release camera resources.
- */
 function closeTryOnModal() {
-    const modal = document.getElementById('tryon-modal');
-    if (modal) {
-        modal.classList.remove('active');
-        modal.style.display = 'none';
-    }
-
-    const viewerContainer = document.getElementById('tryon-viewer-container');
-    if (viewerContainer) {
-        const iframe = viewerContainer.querySelector('iframe');
-        if (iframe) {
-            iframe.src = '';
-        }
-        viewerContainer.innerHTML = '';
-    }
-
-    const standaloneIframe = document.getElementById('tryon-iframe');
-    if (standaloneIframe) {
-        standaloneIframe.src = '';
+    if (window.Anywear && typeof window.Anywear.close === 'function') {
+        window.Anywear.close();
     }
 }
 
