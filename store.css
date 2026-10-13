@@ -53,7 +53,7 @@ body {
     inset: 0;
     background: rgba(14, 17, 17, 0.72);
     backdrop-filter: blur(8px);
-    z-index: 1000;
+    z-index: 999999;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -66,6 +66,31 @@ body {
 .lead-modal-overlay.active {
     opacity: 1;
     pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Gate-Active State: Hide Anywear/Decart Injected Live Widget Elements
+   When VIP Gate modal is active, completely hide injected Anywear widget
+   buttons and overlays to prevent mobile UI conflict with WhatsApp inputs.
+   -------------------------------------------------------------------------- */
+body.gate-active [class*="anywear"],
+body.gate-active [id*="anywear"],
+body.gate-active [class*="decart"],
+body.gate-active [id*="decart"],
+body.gate-active anywear-widget,
+body.gate-active anywear-button,
+body.gate-active decart-widget,
+body.gate-active [data-anywear],
+body.gate-active [data-decart],
+body.gate-active iframe[src*="anywear"],
+body.gate-active iframe[src*="decart"],
+body.gate-active div[style*="z-index"][class*="anywear"],
+body.gate-active div[style*="z-index"][id*="anywear"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transform: scale(0) !important;
 }
 
 .lead-modal-card {

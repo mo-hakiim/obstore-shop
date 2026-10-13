@@ -661,6 +661,9 @@ async function submitLeadGate(e) {
     const mainContent = document.getElementById('main-store-content');
 
     setTimeout(() => {
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.classList.remove('gate-active');
+        }
         if (modal) {
             modal.classList.remove('active');
             modal.style.display = 'none';
@@ -873,6 +876,9 @@ function handleProductInteraction(garmentId, itemName, anywearModelId) {
 
 // Open VIP Lead-Capture Modal and lock/blur content
 function openLeadModal(targetGarmentId = null) {
+    if (typeof document !== 'undefined' && document.body) {
+        document.body.classList.add('gate-active');
+    }
     const modal = document.getElementById('lead-modal');
     const mainContent = document.getElementById('main-store-content');
     if (modal) {
@@ -902,6 +908,9 @@ window.onload = async function() {
         openLeadModal(garmentId);
     } else {
         // Requirement 2: Already captured — bypass lead gate completely
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.classList.remove('gate-active');
+        }
         const modal = document.getElementById('lead-modal');
         const mainContent = document.getElementById('main-store-content');
         if (modal) {
