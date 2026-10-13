@@ -183,19 +183,17 @@
 
     </div>
 
-    <!-- ==================== ANYWEAR AR TRY-ON IFRAME MODAL ==================== -->
-    <div id="tryon-modal" class="tryon-modal-overlay">
+    <!-- ==================== ANYWEAR 3D VIRTUAL TRY-ON OVERLAY MODAL ==================== -->
+    <div id="tryon-modal" class="tryon-modal-overlay" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 9999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(8px); padding: 20px;">
         <div class="tryon-modal-container">
             <div class="tryon-modal-header">
                 <div class="tryon-modal-title">
                     <i class="fa-solid fa-cube text-amber-500"></i>
                     <span id="tryon-item-name">Anywear 3D Virtual Try-On</span>
                 </div>
-                <button class="tryon-close-btn" onclick="closeTryOnModal()"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="tryon-close-btn" onclick="closeTryOnModal()" aria-label="Close">×</button>
             </div>
-            <div class="tryon-iframe-wrap">
-                <iframe id="tryon-iframe" src="about:blank" title="Anywear AR Try-On Session" allow="camera; microphone; xr-spatial-tracking"></iframe>
-            </div>
+            <div id="tryon-viewer-container"></div>
         </div>
     </div>
 

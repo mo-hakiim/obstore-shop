@@ -9,16 +9,31 @@
  */
 
 const SUPABASE_PROJECT_REF = 'pnbozvyqautludmogpjs';
-const SUPABASE_DEFAULT_URL = `https://${SUPABASE_PROJECT_REF}.supabase.co`;
-const SUPABASE_DEFAULT_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBuYm96dnlxYXV0bHVkbW9ncGpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAzMDk1MDAsImV4cCI6MjA3NTg4NTUwMH0.placeholder';
+const SUPABASE_URL = `https://${SUPABASE_PROJECT_REF}.supabase.co`;
+const SUPABASE_DEFAULT_URL = SUPABASE_URL;
+
+// Supabase Anon Public Key for project pnbozvyqautludmogpjs (from Settings -> API)
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBuYm96dnlxYXV0bHVkbW9ncGpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0ODkyNzksImV4cCI6MjEwNzA2NTI3OX0.BZu7DURgeM5eoF-AfeGxRDchjfJnhgD6W0kq3OMNn9I';
+const SUPABASE_DEFAULT_ANON_KEY = SUPABASE_ANON_KEY;
 const SUPABASE_STORAGE_BUCKET = 'garment-images';
 const SUPABASE_STORAGE_BASE_URL = `${SUPABASE_DEFAULT_URL}/storage/v1/object/public/${SUPABASE_STORAGE_BUCKET}/`;
 
-// ==========================================================================
-// eKYC Pro Real-Time WhatsApp Verification Configuration
-// ==========================================================================
-const EKYC_PRO_ENDPOINT = 'https://api.ekycpro.com/v1/check';
-const EKYC_PRO_API_KEY = 'C2Dgi9bngLtvwNBhi338npwDgB9uSYc4HNhoWIoygswWQ8PQrxPq8QYoW69m';
+// Use existing global supabase instance from CDN or create helper
+function getSupabaseClient() {
+    if (typeof window !== 'undefined' && window._supabaseClient) return window._supabaseClient;
+    const sdk = (typeof supabase !== 'undefined' && typeof supabase.createClient === 'function')
+        ? supabase
+        : (typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function' ? window.supabase : null);
+
+    if (sdk && typeof sdk.createClient === 'function') {
+        const client = sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        if (typeof window !== 'undefined') {
+            window._supabaseClient = client;
+        }
+        return client;
+    }
+    return null;
+}
 
 /**
  * Format raw phone input into strict E.164 standard.
@@ -45,90 +60,26 @@ function formatToE164(phone) {
 }
 
 /**
- * Real-time WhatsApp phone verification via eKYC Pro API.
- * Returns { verified: boolean, registered: boolean, checkId: string|null, formattedPhone: string, error: string|null }
+ * Real-time WhatsApp phone verification via Supabase Edge Function ('verify-ekyc').
+ * Returns { verified: boolean, registered: boolean|null, checkId: string|null, formattedPhone: string, isFallback?: boolean, error?: string }
  */
 async function verifyWhatsAppPhoneEkyc(rawPhone) {
     const formattedPhone = formatToE164(rawPhone);
-    const payload = {
-        service_type: 'ws',
-        identifier: formattedPhone
-    };
-
+    const client = getSupabaseClient();
     try {
-        const response = await fetch(EKYC_PRO_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-API-Key': EKYC_PRO_API_KEY
-            },
-            body: JSON.stringify(payload)
+        if (!client || !client.functions) {
+            return { verified: false, registered: null, checkId: null, formattedPhone, isFallback: true, error: 'Supabase client or Edge Functions not available' };
+        }
+        const { data, error } = await client.functions.invoke('verify-ekyc', {
+            body: { phone: formattedPhone }
         });
-
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            console.warn('eKYC Pro HTTP notice:', response.status, errText);
-            // Graceful network/API error handling: allow through if service down
-            return {
-                verified: true,
-                registered: true,
-                checkId: null,
-                formattedPhone,
-                isFallback: true,
-                error: `HTTP ${response.status}`
-            };
+        if (error || !data) {
+            return { verified: false, registered: null, checkId: null, formattedPhone, isFallback: true, error: error?.message || 'Invocation failed' };
         }
-
-        const result = await response.json();
-        console.log('eKYC Pro verification result:', result);
-
-        if (result && result.success && result.data) {
-            return {
-                verified: !!result.data.registered,
-                registered: !!result.data.registered,
-                checkId: result.data.id || result.transactionId || null,
-                formattedPhone,
-                error: null
-            };
-        }
-
-        return {
-            verified: false,
-            registered: false,
-            checkId: null,
-            formattedPhone,
-            error: 'Invalid response payload'
-        };
-    } catch (networkErr) {
-        console.warn('eKYC Pro fetch exception (graceful handling):', networkErr);
-        // Graceful network fallback to avoid completely blocking users if offline
-        return {
-            verified: true,
-            registered: true,
-            checkId: null,
-            formattedPhone,
-            isFallback: true,
-            error: networkErr.message
-        };
+        return { ...data, formattedPhone };
+    } catch (err) {
+        return { verified: false, registered: null, checkId: null, formattedPhone, isFallback: true, error: err.message };
     }
-}
-
-// Initialize Supabase Client
-let supabaseClient = null;
-function getSupabaseClient() {
-    if (supabaseClient) return supabaseClient;
-    const config = JSON.parse(localStorage.getItem('labis_api_config')) || {};
-    const supabaseUrl = config.supabaseUrl || SUPABASE_DEFAULT_URL;
-    const supabaseKey = config.supabaseAnonKey || SUPABASE_DEFAULT_ANON_KEY;
-
-    if (window.supabase && typeof window.supabase.createClient === 'function') {
-        try {
-            supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
-        } catch (e) {
-            console.warn('Supabase client instantiation notice:', e);
-        }
-    }
-    return supabaseClient;
 }
 
 // Active Store Constants & State
@@ -220,17 +171,17 @@ async function seedGobstore(client) {
 
 // --- 11 Live Storage Bucket Garments Catalog Definition ---
 const STORAGE_BUCKET_GARMENTS = [
-    { id: 'grm-1', title: 'Classic Shoe', category: 'Footwear', price: 95.00, file: 'classic sheo.jfif' },
-    { id: 'grm-2', title: 'Classic Shoe II', category: 'Footwear', price: 98.00, file: 'classic sheo2.jfif' },
-    { id: 'grm-3', title: 'Oxford Shoe I', category: 'Footwear', price: 89.00, file: 'sheo 1.jfif' },
-    { id: 'grm-4', title: 'Leather Shoe II', category: 'Footwear', price: 92.00, file: 'sheo2.jfif' },
-    { id: 'grm-5', title: 'Formal Shoe III', category: 'Footwear', price: 96.00, file: 'sheo3.jfif' },
-    { id: 'grm-6', title: 'Tailored Shirt', category: 'Shirts', price: 55.00, file: 'shrit.jfif' },
-    { id: 'grm-7', title: 'Classic Button-Up Shirt II', category: 'Shirts', price: 58.00, file: 'shirt2.jfif' },
-    { id: 'grm-8', title: 'Formal Dress Shirt III', category: 'Shirts', price: 62.00, file: 'shirt3.jfif' },
-    { id: 'grm-9', title: 'Slim Fit Pants', category: 'Pants', price: 65.00, file: 'pants.jfif' },
-    { id: 'grm-10', title: 'Chino Trousers II', category: 'Pants', price: 68.00, file: 'pants 2.jfif' },
-    { id: 'grm-11', title: 'Formal Trousers III', category: 'Pants', price: 72.00, file: 'pants3.jfif' }
+    { id: 'grm-1', title: 'Classic Shoe', category: 'Footwear', price: 95.00, file: 'classic sheo.jfif', anywearModelId: 'grm-1' },
+    { id: 'grm-2', title: 'Classic Shoe II', category: 'Footwear', price: 98.00, file: 'classic sheo2.jfif', anywearModelId: 'grm-2' },
+    { id: 'grm-3', title: 'Oxford Shoe I', category: 'Footwear', price: 89.00, file: 'sheo 1.jfif', anywearModelId: 'grm-3' },
+    { id: 'grm-4', title: 'Leather Shoe II', category: 'Footwear', price: 92.00, file: 'sheo2.jfif', anywearModelId: 'grm-4' },
+    { id: 'grm-5', title: 'Formal Shoe III', category: 'Footwear', price: 96.00, file: 'sheo3.jfif', anywearModelId: 'grm-5' },
+    { id: 'grm-6', title: 'Tailored Shirt', category: 'Shirts', price: 55.00, file: 'shrit.jfif', anywearModelId: 'grm-6' },
+    { id: 'grm-7', title: 'Classic Button-Up Shirt II', category: 'Shirts', price: 58.00, file: 'shirt2.jfif', anywearModelId: 'grm-7' },
+    { id: 'grm-8', title: 'Formal Dress Shirt III', category: 'Shirts', price: 62.00, file: 'shirt3.jfif', anywearModelId: 'grm-8' },
+    { id: 'grm-9', title: 'Slim Fit Pants', category: 'Pants', price: 65.00, file: 'pants.jfif', anywearModelId: 'grm-9' },
+    { id: 'grm-10', title: 'Chino Trousers II', category: 'Pants', price: 68.00, file: 'pants 2.jfif', anywearModelId: 'grm-10' },
+    { id: 'grm-11', title: 'Formal Trousers III', category: 'Pants', price: 72.00, file: 'pants3.jfif', anywearModelId: 'grm-11' }
 ];
 
 // --- Seed garments table in Supabase directly from public storage bucket ---
@@ -391,7 +342,8 @@ async function fetchAndRenderGarments() {
             reviews: g.reviews ? parseInt(g.reviews, 10) : (42 + (idx * 11)),
             colors: g.colors && Array.isArray(g.colors) ? g.colors : ['#111111', '#c49a6c', '#4b5563'],
             image: resolvedImg,
-            arUrl: g.ar_url || `https://labis.so/ar-viewer?sku=${encodeURIComponent(resolvedId)}`
+            anywearModelId: g.anywear_model_id || g.anywearModelId || resolvedId,
+            arUrl: g.ar_url || `https://anywear.decart.ai/virtual-try-on?model=${encodeURIComponent(g.anywear_model_id || resolvedId)}`
         };
     });
 
@@ -438,12 +390,17 @@ function renderStoreProducts() {
         const isTarget = (garmentId && (String(item.id) === String(garmentId) || item.title.toLowerCase().includes(garmentId.toLowerCase())));
         const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering/trying on: ${item.title} ($${item.price.toFixed(2)}).`);
         const waLink = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
+        const modelId = item.anywearModelId || item.id;
 
         return `
-        <div id="product-card-${item.id}" class="product-card ${isTarget ? 'garment-focused' : ''}" onclick="handleProductInteraction('${item.id}', '${item.title.replace(/'/g, "\\'")}', '${item.arUrl}')" style="cursor: pointer;" title="Click to try on ${item.title}">
+        <div id="product-card-${item.id}" class="product-card ${isTarget ? 'garment-focused' : ''}" data-product-id="${item.id}" data-model-id="${modelId}" onclick="launchVirtualTryOn('${item.id}', '${modelId}')" style="cursor: pointer;" title="Click to try on ${item.title}">
             <div class="product-img-wrap" style="position: relative;">
                 ${item.discount ? `<span class="discount-badge">${item.discount}</span>` : ''}
                 
+                <button type="button" class="tryon-badge-btn" onclick="event.stopPropagation(); launchVirtualTryOn('${item.id}', '${modelId}')" title="3D Virtual Try-On">
+                    <i class="fa-solid fa-cube"></i> Try On
+                </button>
+
                 <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')">
                     <i class="fa-regular fa-heart"></i>
                 </button>
@@ -478,13 +435,44 @@ function renderStoreProducts() {
                     ${item.colors.map(c => `<span class="color-dot" style="background-color: ${c}"></span>`).join('')}
                 </div>
 
-                <a href="${waLink}" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn">
-                    <i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp
-                </a>
+                <div style="display: flex; gap: 8px; margin-top: 10px;">
+                    <button type="button" class="tryon-btn-action" onclick="event.stopPropagation(); launchVirtualTryOn('${item.id}', '${modelId}')" style="flex: 1; padding: 10px 14px; border-radius: 8px; background: #111111; color: #ffffff; border: none; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
+                        <i class="fa-solid fa-cube" style="color: #c49a6c;"></i> Try On
+                    </button>
+                    <a href="${waLink}" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn" style="flex: 1; margin-top: 0;">
+                        <i class="fa-brands fa-whatsapp"></i> Inquire
+                    </a>
+                </div>
             </div>
         </div>
         `;
     }).join('');
+
+    attachTryOnEventListeners();
+}
+
+// Attach explicit click listeners to product cards and try-on buttons
+function attachTryOnEventListeners() {
+    const cards = document.querySelectorAll('.product-card');
+    cards.forEach(card => {
+        const pId = card.getAttribute('data-product-id') || card.id.replace('product-card-', '');
+        const mId = card.getAttribute('data-model-id') || pId;
+        
+        card.addEventListener('click', (e) => {
+            if (e.target.closest('.whatsapp-inquire-btn') || e.target.closest('.wishlist-btn') || e.target.closest('.tryon-badge-btn') || e.target.closest('.tryon-btn-action')) {
+                return;
+            }
+            launchVirtualTryOn(pId, mId);
+        });
+
+        const tryBtns = card.querySelectorAll('.tryon-badge-btn, .tryon-btn-action');
+        tryBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                launchVirtualTryOn(pId, mId);
+            });
+        });
+    });
 }
 
 // ==========================================================================
@@ -531,13 +519,16 @@ function renderSpotlightView(garmentId) {
                 $${targetGarment.price.toFixed(2)}
             </p>
 
-            <div style="width: 100%; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative;">
+            <div style="width: 100%; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative; cursor: pointer;" onclick="launchVirtualTryOn('${targetGarment.id}', '${targetGarment.anywearModelId || targetGarment.id}')">
                 <img id="spotlight-garment-image" 
                      src="${targetGarment.image}" 
                      alt="${targetGarment.title}" 
                      style="width: 100%; height: auto; max-height: 520px; object-fit: cover; display: block;"
                      onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
             </div>
+            <button type="button" class="spotlight-tryon-btn" onclick="launchVirtualTryOn('${targetGarment.id}', '${targetGarment.anywearModelId || targetGarment.id}')" style="margin-top: 18px; padding: 14px 28px; border-radius: 12px; background: #111111; color: #ffffff; border: none; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); transition: transform 0.2s;">
+                <i class="fa-solid fa-cube" style="color: #c49a6c;"></i> Launch 3D Virtual Try-On
+            </button>
         </div>
     `;
 
@@ -597,7 +588,7 @@ async function submitLeadGate(e) {
     // 1. Format phone to strict E.164 standard
     const formattedPhone = formatToE164(rawPhone);
 
-    // 2. Real-Time WhatsApp Verification via eKYC Pro API
+    // 2. Real-Time WhatsApp Verification via Supabase Edge Function ('verify-ekyc')
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.style.opacity = '0.75';
@@ -610,28 +601,46 @@ async function submitLeadGate(e) {
         ekycResult = await verifyWhatsAppPhoneEkyc(formattedPhone);
     } catch (err) {
         console.warn('eKYC check error caught:', err);
-        ekycResult = { verified: true, registered: true, checkId: null, formattedPhone, isFallback: true };
+        ekycResult = { verified: false, registered: null, checkId: null, formattedPhone, isFallback: true, error: err.message };
     }
 
-    // Check if phone number is NOT registered on WhatsApp
-    if (!ekycResult.registered && !ekycResult.isFallback) {
+    // =========================================================================
+    // STRICT 3-STATE SUBMIT HANDLER
+    // =========================================================================
+
+    // STATE 1: Unregistered (registered === false)
+    // STOP form submission. DO NOT save lead. DO NOT close modal. Highlight input red.
+    if (ekycResult.registered === false) {
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.style.opacity = '1';
             submitBtn.innerHTML = '<span>Unlock Storefront & Try-On →</span>';
         }
-        setStatus('<i class="fa-solid fa-triangle-exclamation"></i> Please enter an active WhatsApp phone number.', 'error');
+        setStatus('<i class="fa-solid fa-triangle-exclamation"></i> This WhatsApp number is not registered or invalid. Please enter a working WhatsApp number.', 'error');
         if (phoneInput) {
             phoneInput.style.borderColor = '#dc2626';
             phoneInput.focus();
         }
-        return; // STOP submission as required
+        return; // Strictly STOP form submission
     }
 
-    // Phone is verified active WhatsApp
-    setStatus('<i class="fa-solid fa-check"></i> WhatsApp verified! Unlocking VIP access...', 'success');
+    // Reset phone input border if valid or fallback
+    if (phoneInput) {
+        phoneInput.style.borderColor = '#e2e2e2';
+    }
 
-    // 3. Session Unlocking & Universal Persistence (visitor modal dismissal)
+    // Determine verification flag
+    const isVerifiedWhatsApp = (ekycResult.registered === true);
+
+    if (isVerifiedWhatsApp) {
+        // STATE 2: Verified (registered === true)
+        setStatus('<i class="fa-solid fa-check"></i> WhatsApp verified! Unlocking VIP access...', 'success');
+    } else {
+        // STATE 3: Unverified/Fallback (registered === null or isFallback === true)
+        setStatus('<i class="fa-solid fa-circle-notch fa-spin"></i> Unlocking access...', 'info');
+    }
+
+    // Session Unlocking & Universal Persistence
     localStorage.setItem('gobstore_lead_captured', 'true');
     sessionStorage.setItem('gobstore_lead_captured', 'true');
     sessionStorage.setItem('moda_user_name', name);
@@ -643,7 +652,7 @@ async function submitLeadGate(e) {
     const activeGarmentId = focusedGarment ? focusedGarment.id : (garmentId || null);
     const activeStoreId = getValidStoreId(focusedGarment ? focusedGarment.storeId : (currentShop.id || shopId));
 
-    // 4. Smoothly clear blur and close lead modal
+    // Smoothly clear blur and close lead modal
     const modal = document.getElementById('lead-modal');
     const mainContent = document.getElementById('main-store-content');
 
@@ -657,34 +666,36 @@ async function submitLeadGate(e) {
         }
     }, 400);
 
-    // 5. Post-Submission Display Logic (Spotlight scanned garment or full catalog)
+    // Post-Submission Display Logic (Spotlight scanned garment or full catalog)
     if (garmentId) {
         renderSpotlightView(garmentId);
     } else {
         showFullCatalog();
     }
 
-    // 6. Activity Telemetry Log
+    // Activity Telemetry Log
     const now = new Date();
     const dateFormatted = now.toISOString().slice(0, 10) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const storedLogs = JSON.parse(localStorage.getItem('labis_logs')) || [];
     storedLogs.unshift({
         id: 'log-' + Date.now(),
         type: 'LEAD',
-        message: `Verified WhatsApp Lead: ${name} (${formattedPhone}) — eKYC: ${ekycResult.checkId || 'Verified'}`,
+        message: `${isVerifiedWhatsApp ? 'Verified' : 'Unverified'} WhatsApp Lead: ${name} (${formattedPhone}) — ${isVerifiedWhatsApp ? ('eKYC: ' + (ekycResult.checkId || 'Verified')) : 'Fallback Mode'}`,
         timestamp: dateFormatted,
-        status: 'success'
+        status: isVerifiedWhatsApp ? 'success' : 'info'
     });
     localStorage.setItem('labis_logs', JSON.stringify(storedLogs));
 
-    // 7. Strictly insert verified lead into Supabase public.leads with eKYC verification metadata
+    // Save lead with strict whatsapp_verified flag (true for Verified, false for Fallback)
     const newLead = {
         full_name: name,
         whatsapp_number: formattedPhone,
-        store_id: activeStoreId,
-        whatsapp_verified: true,
+        whatsapp_verified: ekycResult.registered === true,
         ekyc_check_id: ekycResult.checkId || null
     };
+    if (activeStoreId && typeof activeStoreId === 'string' && activeStoreId.trim() !== '') {
+        newLead.store_id = activeStoreId.trim();
+    }
 
     postLeadToSupabase(newLead).catch(err => console.warn('Supabase post lead notice:', err));
     postLeadToWebhook({
@@ -712,25 +723,31 @@ function highlightTargetGarment(garmentId) {
 // Insert strictly into Supabase database `public.leads` table using full_name, whatsapp_number, store_id (UUID) + eKYC metadata
 async function postLeadToSupabase(leadRecord) {
     const client = getSupabaseClient();
-    const config = JSON.parse(localStorage.getItem('labis_api_config')) || {};
-    const supabaseUrl = config.supabaseUrl || SUPABASE_DEFAULT_URL;
-    const supabaseKey = config.supabaseAnonKey || SUPABASE_DEFAULT_ANON_KEY;
+    const config = (typeof window !== 'undefined' && window.localStorage && JSON.parse(localStorage.getItem('labis_api_config') || '{}')) || {};
+    const supabaseUrl = config.supabaseUrl || SUPABASE_URL || SUPABASE_DEFAULT_URL;
+    const supabaseKey = config.supabaseAnonKey || SUPABASE_ANON_KEY || SUPABASE_DEFAULT_ANON_KEY;
 
     // Full payload including eKYC metadata
     const payloadWithMeta = {
         full_name: (leadRecord.full_name || leadRecord.name || '').trim(),
         whatsapp_number: formatToE164(leadRecord.whatsapp_number || leadRecord.phone || ''),
-        store_id: getValidStoreId(leadRecord.store_id),
-        whatsapp_verified: leadRecord.whatsapp_verified !== undefined ? leadRecord.whatsapp_verified : true,
+        whatsapp_verified: leadRecord.whatsapp_verified !== undefined ? leadRecord.whatsapp_verified : false,
         ekyc_check_id: leadRecord.ekyc_check_id || null
     };
+
+    // Ensure store_id is only included if non-empty and valid string
+    if (leadRecord.store_id && typeof leadRecord.store_id === 'string' && leadRecord.store_id.trim() !== '') {
+        payloadWithMeta.store_id = leadRecord.store_id.trim();
+    }
 
     // Minimal payload (in case public.leads schema has strict column constraints without extra columns)
     const basePayload = {
         full_name: payloadWithMeta.full_name,
-        whatsapp_number: payloadWithMeta.whatsapp_number,
-        store_id: payloadWithMeta.store_id
+        whatsapp_number: payloadWithMeta.whatsapp_number
     };
+    if (payloadWithMeta.store_id) {
+        basePayload.store_id = payloadWithMeta.store_id;
+    }
 
     // 1. Using Supabase JS Client SDK
     if (client) {
@@ -797,53 +814,125 @@ function postLeadToWebhook(leadData) {
     }
 }
 
-// 3D Virtual Try-On Modal Controls
-async function openTryOnModal(itemName, arUrl, garmentId = null) {
+// ==========================================================================
+// Anywear 3D Virtual Try-On Engine (Modal Controls & Dynamic Iframe Injection)
+// ==========================================================================
+
+/**
+ * Launch Anywear 3D Virtual Try-On Session.
+ * Displays overlay modal and injects dynamic iframe with camera & fullscreen permissions.
+ * @param {string} productId - Product identifier
+ * @param {string} anywearModelId - Anywear 3D model identifier
+ */
+function launchVirtualTryOn(productId, anywearModelId) {
     const modal = document.getElementById('tryon-modal');
-    const iframe = document.getElementById('tryon-iframe');
+    const viewerContainer = document.getElementById('tryon-viewer-container');
     const titleEl = document.getElementById('tryon-item-name');
 
-    if (titleEl) titleEl.textContent = `Anywear 3D AR — ${itemName}`;
-    if (iframe) iframe.src = arUrl || 'https://labis.so/ar-viewer';
-    if (modal) modal.classList.add('active');
+    // Resolve anywearModelId or fallback to productId
+    const resolvedModelId = (anywearModelId !== undefined && anywearModelId !== null && String(anywearModelId).trim() !== '')
+        ? anywearModelId
+        : (productId || 'default');
 
-    const now = new Date();
-    const dateFormatted = now.toISOString().slice(0, 10) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const userName = sessionStorage.getItem('moda_user_name') || 'Try-On Shopper';
-    const userPhone = sessionStorage.getItem('moda_user_phone') || currentShop.phone;
+    // Update item title if available in current collection
+    let itemName = 'Anywear 3D Virtual Try-On';
+    if (productId && typeof storeGarments !== 'undefined' && Array.isArray(storeGarments)) {
+        const found = storeGarments.find(g => String(g.id) === String(productId));
+        if (found && found.title) {
+            itemName = `Anywear 3D AR — ${found.title}`;
+        }
+    }
+    if (titleEl) {
+        titleEl.textContent = itemName;
+    }
 
-    // Telemetry log
-    const storedLogs = JSON.parse(localStorage.getItem('labis_logs')) || [];
-    storedLogs.unshift({
-        id: 'log-' + Date.now(),
-        type: 'LEAD',
-        message: `Virtual Try-On activated: ${itemName} at ${currentShop.name} (${userName})`,
-        timestamp: dateFormatted,
-        status: 'success'
-    });
-    localStorage.setItem('labis_logs', JSON.stringify(storedLogs));
+    // Dynamic iframe injection into #tryon-viewer-container with camera & full-screen permissions
+    const iframeUrl = `https://anywear.decart.ai/virtual-try-on?model=${resolvedModelId}`;
+    if (viewerContainer) {
+        viewerContainer.innerHTML = `<iframe id="tryon-iframe" src="${iframeUrl}" allow="camera; fullscreen; xr-spatial-tracking" style="width: 100%; height: 100%; border: none; display: block;" title="Anywear 3D Virtual Try-On"></iframe>`;
+    }
 
-    // Direct Supabase Ingestion strictly into public.leads table
-    const tryonLead = {
-        full_name: userName,
-        whatsapp_number: userPhone,
-        store_id: getValidStoreId(currentShop.id)
-    };
-    await postLeadToSupabase(tryonLead);
-    postLeadToWebhook({
-        ...tryonLead,
-        shop: currentShop.name,
-        garment: itemName,
-        garment_id: garmentId,
-        date: dateFormatted
-    });
+    // Display the modal
+    if (modal) {
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+    }
+
+    // Telemetry and background session tracking
+    try {
+        const now = new Date();
+        const dateFormatted = now.toISOString().slice(0, 10) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const userName = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('moda_user_name')) || 'Try-On Shopper';
+        const userPhone = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('moda_user_phone')) || (typeof currentShop !== 'undefined' && currentShop.phone) || '';
+
+        const storedLogs = (typeof localStorage !== 'undefined' && JSON.parse(localStorage.getItem('labis_logs') || '[]')) || [];
+        storedLogs.unshift({
+            id: 'log-' + Date.now(),
+            type: 'LEAD',
+            message: `Virtual Try-On activated: ${itemName} (Model: ${resolvedModelId})`,
+            timestamp: dateFormatted,
+            status: 'success'
+        });
+        if (typeof localStorage !== 'undefined') localStorage.setItem('labis_logs', JSON.stringify(storedLogs));
+
+        if (typeof postLeadToSupabase === 'function' && typeof currentShop !== 'undefined' && currentShop.id) {
+            const tryonLead = {
+                full_name: userName,
+                whatsapp_number: userPhone,
+                store_id: getValidStoreId(currentShop.id)
+            };
+            postLeadToSupabase(tryonLead).catch(() => {});
+            if (typeof postLeadToWebhook === 'function') {
+                postLeadToWebhook({
+                    ...tryonLead,
+                    shop: currentShop.name,
+                    product_id: productId,
+                    anywear_model_id: resolvedModelId,
+                    date: dateFormatted
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('Try-on telemetry notice:', e);
+    }
 }
 
+/**
+ * Close Anywear 3D Virtual Try-On Modal.
+ * Hides modal and clears iframe source to cleanly release camera resources.
+ */
 function closeTryOnModal() {
     const modal = document.getElementById('tryon-modal');
-    const iframe = document.getElementById('tryon-iframe');
-    if (iframe) iframe.src = 'about:blank';
-    if (modal) modal.classList.remove('active');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+
+    const viewerContainer = document.getElementById('tryon-viewer-container');
+    if (viewerContainer) {
+        const iframe = viewerContainer.querySelector('iframe');
+        if (iframe) {
+            iframe.src = '';
+        }
+        viewerContainer.innerHTML = '';
+    }
+
+    const standaloneIframe = document.getElementById('tryon-iframe');
+    if (standaloneIframe) {
+        standaloneIframe.src = '';
+    }
+}
+
+// Backwards-compatible alias for any legacy call
+function openTryOnModal(itemName, arUrl, garmentId = null) {
+    return launchVirtualTryOn(garmentId, garmentId);
+}
+
+// Global functions attached to window
+if (typeof window !== 'undefined') {
+    window.launchVirtualTryOn = launchVirtualTryOn;
+    window.closeTryOnModal = closeTryOnModal;
+    window.openTryOnModal = openTryOnModal;
 }
 
 // Category Filter Helper
@@ -860,15 +949,8 @@ function filterCategory(cat) {
 }
 
 // Handle native click on product card
-function handleProductInteraction(garmentId, itemName, arUrl) {
-    const isUnlocked = localStorage.getItem('gobstore_lead_captured') === 'true' || sessionStorage.getItem('gobstore_lead_captured') === 'true';
-    if (isUnlocked) {
-        // Customer is already verified VIP, open 3D Virtual Try-On directly
-        openTryOnModal(itemName, arUrl, garmentId);
-    } else {
-        // Customer needs to complete the VIP Lead Gate first
-        openLeadModal(garmentId);
-    }
+function handleProductInteraction(garmentId, itemName, anywearModelId) {
+    launchVirtualTryOn(garmentId, anywearModelId || garmentId);
 }
 
 // Open VIP Lead-Capture Modal and lock/blur content
