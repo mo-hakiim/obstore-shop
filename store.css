@@ -101,15 +101,18 @@ body.gate-active [class*="vton"] {
     transform: scale(0) !important;
 }
 
-/* After gate unlock, keep Try-On badges above product chrome (z-index: 90) without clipping */
-body:not(.gate-active) .vton-btn,
-body:not(.gate-active) .try-on-badge,
-body:not(.gate-active) .tryon-badge-btn,
-body:not(.gate-active) [class*="vton"],
-body:not(.gate-active) div[class*="anywear"] {
+/* After gate unlock, keep product-card badges above product chrome without
+   overriding the Anywear widget's own display/layout rules. */
+body:not(.gate-active) .product-img-wrap .anywear-badge-container,
+body:not(.gate-active) .product-img-wrap .anywear-badge,
+body:not(.gate-active) .product-img-wrap anywear-widget,
+body:not(.gate-active) .product-img-wrap anywear-button,
+body:not(.gate-active) .product-img-wrap .anywear-button,
+body:not(.gate-active) .product-img-wrap .vton-btn,
+body:not(.gate-active) .product-img-wrap .try-on-badge,
+body:not(.gate-active) .product-img-wrap .tryon-badge-btn {
     z-index: 90 !important;
     pointer-events: auto !important;
-    display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     transform: none !important;
@@ -1066,6 +1069,26 @@ body:not(.gate-active) div[class*="anywear"] {
     }
     .product-card,
     .product-img-wrap {
+        position: relative;
         overflow: visible;
+    }
+}
+
+@media (max-width: 768px) {
+    .product-card,
+    .product-img-wrap {
+        position: relative;
+        overflow: visible;
+    }
+
+    body:not(.gate-active) .product-img-wrap .anywear-badge-container,
+    body:not(.gate-active) .product-img-wrap .anywear-badge,
+    body:not(.gate-active) .product-img-wrap anywear-widget,
+    body:not(.gate-active) .product-img-wrap anywear-button,
+    body:not(.gate-active) .product-img-wrap .anywear-button,
+    body:not(.gate-active) .product-img-wrap .vton-btn,
+    body:not(.gate-active) .product-img-wrap .try-on-badge,
+    body:not(.gate-active) .product-img-wrap .tryon-badge-btn {
+        z-index: 90 !important;
     }
 }
