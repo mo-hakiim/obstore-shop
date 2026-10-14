@@ -110,8 +110,23 @@ function getUrlParams() {
     const params = new URLSearchParams(window.location.search);
     return {
         shopId: params.get('shop') || params.get('shop_id') || params.get('store_id') || params.get('store'),
-        garmentId: params.get('garment') || params.get('garment_id') || params.get('item_id') || params.get('ref')
+        garmentId: params.get('garment') || params.get('garment_id') || params.get('item_id') || params.get('ref'),
+        productId: params.get('product') || params.get('item')
     };
+}
+
+function getFocusedProductId() {
+    const { productId, garmentId } = getUrlParams();
+    return productId || garmentId || null;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 /** Strip characters that break PostgREST `.or()` / `.ilike()` filter strings. */
@@ -259,7 +274,8 @@ async function fetchAndRenderGarments() {
     }
 
     const client = getSupabaseClient();
-    const { shopId, garmentId } = getUrlParams();
+    const { shopId } = getUrlParams();
+    const focusedProductId = getFocusedProductId();
     let dbGarments = [];
 
     if (client) {
@@ -351,10 +367,10 @@ async function fetchAndRenderGarments() {
         });
 
     // If specific garmentId is in URL, bring that item to the very top
-    if (garmentId) {
+    if (focusedProductId) {
         const targetIndex = storeGarments.findIndex(g => 
-            String(g.id) === String(garmentId) || 
-            (g.title && g.title.toLowerCase().includes(garmentId.toLowerCase()))
+            String(g.id) === String(focusedProductId) ||
+            (g.title && g.title.toLowerCase().includes(String(focusedProductId).toLowerCase()))
         );
         if (targetIndex > -1) {
             const [targetItem] = storeGarments.splice(targetIndex, 1);
@@ -365,10 +381,6 @@ async function fetchAndRenderGarments() {
     allStoreGarments = [...storeGarments];
     renderStoreProducts();
 
-    // If a garment_id parameter was provided, scroll to it and highlight
-    if (garmentId) {
-        highlightTargetGarment(garmentId);
-    }
 }
 
 // --- Update Product Schema for Anywear / Decart Scanner ---
@@ -421,7 +433,7 @@ function notifyAnywearDOMUpdate() {
 
     pingAnywearScanner();
 
-    const images = document.querySelectorAll('#store-products-grid img, #spotlight-container img');
+    const images = document.querySelectorAll('#store-products-grid img, #spotlight-container img, #featured-product-modal img');
     images.forEach(img => {
         if (!img.complete) {
             img.addEventListener('load', pingAnywearScanner, { once: true });
@@ -519,6 +531,118 @@ function renderStoreProducts() {
 // Lead Capture Gate & Display Logic
 // ==========================================================================
 
+function ensureFeaturedProductModal() {
+    let modal = document.getElementById('featured-product-modal');
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'featured-product-modal';
+    modal.className = 'featured-product-modal';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+        <div class="featured-product-backdrop" data-featured-close="true"></div>
+        <div class="featured-product-dialog product-card" role="dialog" aria-modal="true" aria-labelledby="featured-product-title">
+            <div class="featured-product-scroll">
+                <button type="button" class="featured-product-close" aria-label="Close product preview" data-featured-close="true">&times;</button>
+                <div class="featured-product-image-wrap product-img-wrap">
+                    <img id="featured-product-image" src="" alt="" loading="eager" decoding="async">
+                    <div class="modal-anywear-wrap" data-anywear="true"></div>
+                </div>
+                <div class="featured-product-details">
+                    <p id="featured-product-category" class="featured-product-category"></p>
+                    <h2 id="featured-product-title"></h2>
+                    <p id="featured-product-description" class="featured-product-description"></p>
+                    <p id="featured-product-price" class="featured-product-price"></p>
+                    <a id="featured-product-whatsapp" class="whatsapp-inquire-btn" target="_blank" rel="noopener">
+                        <i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp
+                    </a>
+                    <button type="button" class="featured-product-explore" data-featured-explore="true">
+                        Explore Full Store / View All Products
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', event => {
+        if (event.target.closest('[data-featured-close="true"]')) {
+            closeFeaturedProductModal();
+        } else if (event.target.closest('[data-featured-explore="true"]')) {
+            closeFeaturedProductModal();
+            showFullCatalog();
+        }
+    });
+    return modal;
+}
+
+function closeFeaturedProductModal() {
+    const modal = document.getElementById('featured-product-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('featured-product-modal-open');
+}
+
+function showFeaturedProductModal(productId) {
+    const targetGarment = storeGarments.find(g =>
+        String(g.id) === String(productId) ||
+        (g.title && g.title.toLowerCase().includes(String(productId).toLowerCase()))
+    );
+    if (!targetGarment) {
+        showFullCatalog();
+        return;
+    }
+
+    const modal = ensureFeaturedProductModal();
+    const image = modal.querySelector('#featured-product-image');
+    const imageWrap = modal.querySelector('.featured-product-image-wrap');
+    const category = modal.querySelector('#featured-product-category');
+    const title = modal.querySelector('#featured-product-title');
+    const description = modal.querySelector('#featured-product-description');
+    const price = modal.querySelector('#featured-product-price');
+    const whatsapp = modal.querySelector('#featured-product-whatsapp');
+    const fallbackImage = 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=900';
+
+    imageWrap.dataset.productId = targetGarment.id;
+    imageWrap.dataset.modelId = targetGarment.anywearModelId || targetGarment.id;
+    modal.querySelector('.modal-anywear-wrap').dataset.productId = targetGarment.id;
+    modal.querySelector('.modal-anywear-wrap').dataset.modelId = targetGarment.anywearModelId || targetGarment.id;
+    image.src = targetGarment.image || fallbackImage;
+    image.alt = targetGarment.title;
+    image.onerror = () => {
+        image.onerror = null;
+        image.src = fallbackImage;
+    };
+    category.textContent = targetGarment.category || 'Apparel';
+    title.textContent = targetGarment.title;
+    description.textContent = `Premium ${targetGarment.category || 'apparel'} with virtual try-on available.`;
+    price.textContent = `$${targetGarment.price.toFixed(2)}`;
+    const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering/trying on: ${targetGarment.title} ($${targetGarment.price.toFixed(2)}).`);
+    whatsapp.href = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
+
+    // Keep the modal card machine-readable for Anywear's product scanner.
+    const dialog = modal.querySelector('.featured-product-dialog');
+    dialog.dataset.productId = targetGarment.id;
+    dialog.dataset.modelId = targetGarment.anywearModelId || targetGarment.id;
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('featured-product-modal-open');
+    notifyAnywearDOMUpdate();
+    setTimeout(notifyAnywearDOMUpdate, 400);
+}
+
+function bindProductFocusHandlers() {
+    const container = document.getElementById('store-products-grid');
+    if (!container || container.dataset.focusHandlersBound === 'true') return;
+    container.dataset.focusHandlersBound = 'true';
+    container.addEventListener('click', event => {
+        if (event.target.closest('a, button, input, select, textarea')) return;
+        const card = event.target.closest('.product-card');
+        if (card && card.dataset.productId) showFeaturedProductModal(card.dataset.productId);
+    });
+}
+
 // Render Scanned Garment Spotlight View (Requirement: Scanned Garment Spotlight View)
 function renderSpotlightView(garmentId) {
     const spotlightSection = document.getElementById('garment-spotlight-section');
@@ -585,6 +709,7 @@ function renderSpotlightView(garmentId) {
 
 // "View Full Catalog" Toggle Action
 function showFullCatalog() {
+    closeFeaturedProductModal();
     const spotlightSection = document.getElementById('garment-spotlight-section');
     const productsSection = document.getElementById('products');
     const heroSection = document.getElementById('hero');
@@ -694,10 +819,11 @@ async function submitLeadGate(e) {
     sessionStorage.setItem('moda_user_name', name);
     sessionStorage.setItem('moda_user_phone', formattedPhone);
 
-    const { garmentId, shopId } = getUrlParams();
-    const focusedGarment = storeGarments.find(g => String(g.id) === String(garmentId));
+    const { shopId } = getUrlParams();
+    const focusedProductId = getFocusedProductId();
+    const focusedGarment = storeGarments.find(g => String(g.id) === String(focusedProductId));
     const garmentName = focusedGarment ? focusedGarment.title : 'General Store VIP Access';
-    const activeGarmentId = focusedGarment ? focusedGarment.id : (garmentId || null);
+    const activeGarmentId = focusedGarment ? focusedGarment.id : (focusedProductId || null);
     const activeStoreId = getValidStoreId(focusedGarment ? focusedGarment.storeId : (currentShop.id || shopId));
 
     // Smoothly clear blur and close lead modal
@@ -722,8 +848,8 @@ async function submitLeadGate(e) {
     setTimeout(notifyAnywearDOMUpdate, 400);
 
     // Post-Submission Display Logic (Spotlight scanned garment or full catalog)
-    if (garmentId) {
-        renderSpotlightView(garmentId);
+    if (focusedProductId) {
+        showFeaturedProductModal(focusedProductId);
     } else {
         showFullCatalog();
     }
@@ -1056,15 +1182,16 @@ window.onload = async function() {
     void flushPendingLeads();
     await initShopBranding();
     await fetchAndRenderGarments();
+    bindProductFocusHandlers();
 
-    const { shopId, garmentId } = getUrlParams();
+    const focusedProductId = getFocusedProductId();
     
     // 1. Check browser storage for universal lead capture persistence
     const isCaptured = localStorage.getItem('gobstore_lead_captured') === 'true' || sessionStorage.getItem('gobstore_lead_captured') === 'true';
 
     if (!isCaptured) {
         // Requirement 1: If NOT set, lock/blur product interaction and trigger the VIP Lead-Capture form immediately upon landing
-        openLeadModal(garmentId);
+        openLeadModal(focusedProductId);
     } else {
         // Requirement 2: Already captured — bypass lead gate completely
         if (typeof document !== 'undefined' && document.body) {
@@ -1081,8 +1208,8 @@ window.onload = async function() {
         }
 
         // Requirement 3: Post-Submission / Session Display Logic
-        if (garmentId) {
-            renderSpotlightView(garmentId);
+        if (focusedProductId) {
+            showFeaturedProductModal(focusedProductId);
         } else {
             showFullCatalog();
         }

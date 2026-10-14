@@ -135,6 +135,159 @@ body:not(.gate-active) .product-img-wrap .tryon-badge-btn {
     transform: translateY(0) scale(1);
 }
 
+/* Focused single-product preview */
+.featured-product-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 99998;
+}
+
+.featured-product-modal.active {
+    display: flex;
+}
+
+.featured-product-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(14, 17, 17, 0.76);
+    backdrop-filter: blur(8px);
+}
+
+.featured-product-dialog {
+    position: relative;
+    width: min(100%, 560px);
+    max-height: 85vh;
+    background: #ffffff;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.35);
+    z-index: 1;
+}
+
+.featured-product-scroll {
+    max-height: 85vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 24px 24px 2rem;
+}
+
+.featured-product-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.92);
+    color: #111111;
+    font-size: 25px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 100;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+}
+
+.featured-product-image-wrap {
+    width: 100%;
+    min-height: 260px;
+    max-height: 480px;
+    border-radius: 18px;
+    overflow: visible;
+    background: #f7f7f7;
+    position: relative;
+}
+
+.featured-product-image-wrap img {
+    width: 100%;
+    height: auto;
+    max-height: 480px;
+    object-fit: cover;
+    display: block;
+    border-radius: 18px;
+}
+
+.modal-anywear-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 95;
+    pointer-events: none;
+}
+
+body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap,
+body:not(.gate-active) .featured-product-image-wrap .anywear-badge-container,
+body:not(.gate-active) .featured-product-image-wrap .anywear-badge,
+body:not(.gate-active) .featured-product-image-wrap anywear-widget,
+body:not(.gate-active) .featured-product-image-wrap anywear-button,
+body:not(.gate-active) .featured-product-image-wrap .anywear-button {
+    z-index: 95 !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.featured-product-details {
+    padding: 22px 4px 0;
+    text-align: center;
+}
+
+.featured-product-category {
+    margin-bottom: 6px;
+    color: #c49a6c;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+}
+
+.featured-product-details h2 {
+    margin-bottom: 8px;
+    color: #111111;
+    font-size: 26px;
+    line-height: 1.2;
+}
+
+.featured-product-description {
+    margin: 0 auto 10px;
+    max-width: 390px;
+    color: #707070;
+    font-size: 12px;
+}
+
+.featured-product-price {
+    margin-bottom: 18px;
+    color: #111111;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.featured-product-details .whatsapp-inquire-btn {
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.featured-product-explore {
+    width: 100%;
+    padding: 13px 16px;
+    border: 1px solid #d9d9d9;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #222222;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+body.featured-product-modal-open {
+    overflow: hidden;
+}
+
 /* --------------------------------------------------------------------------
    Header & Navigation
    -------------------------------------------------------------------------- */
@@ -1079,6 +1232,25 @@ body:not(.gate-active) .product-img-wrap .tryon-badge-btn {
     .product-img-wrap {
         position: relative;
         overflow: visible;
+    }
+
+    .featured-product-modal {
+        align-items: flex-start;
+        padding: max(12px, env(safe-area-inset-top)) 12px 12px;
+    }
+
+    .featured-product-dialog,
+    .featured-product-scroll {
+        max-height: 85vh;
+    }
+
+    .featured-product-scroll {
+        padding: 18px 16px 2rem;
+    }
+
+    .featured-product-image-wrap,
+    .featured-product-image-wrap img {
+        max-height: none;
     }
 
     body:not(.gate-active) .product-img-wrap .anywear-badge-container,
