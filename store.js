@@ -114,6 +114,24 @@ function getUrlParams() {
     };
 }
 
+/** Strip characters that break PostgREST `.or()` / `.ilike()` filter strings. */
+function sanitizePostgrestValue(value) {
+    if (typeof value !== 'string') return '';
+    return value.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+}
+
+/**
+ * Only UUID shop ids are safe to send as `.eq` / `.or` filters.
+ * Slugs are sanitized for `ilike` name lookups and never interpolated raw.
+ */
+function getSafeShopFilter(rawShopId) {
+    const raw = typeof rawShopId === 'string' ? rawShopId.trim() : '';
+    if (!raw) return { uuid: null, name: null };
+    if (isValidUUID(raw)) return { uuid: raw, name: null };
+    const name = sanitizePostgrestValue(raw);
+    return { uuid: null, name: name || null };
+}
+
 // Convert image filename/path into valid Supabase public storage URL
 function resolveGarmentImageUrl(rawImage, category = 'Apparel') {
     if (!rawImage) {
@@ -130,44 +148,7 @@ function resolveGarmentImageUrl(rawImage, category = 'Apparel') {
     return `${SUPABASE_STORAGE_BASE_URL}${cleanFileName}`;
 }
 
-// --- Seed active store ("gobstore") directly into Supabase stores table ---
-async function seedGobstore(client) {
-    const seedStore = {
-        id: GOBSTORE_UUID,
-        name: 'gobstore',
-        city: 'Hargeisa',
-        owner_whatsapp: '+252634410293'
-    };
-    if (client) {
-        try {
-            const { data, error } = await client.from('stores').upsert([seedStore], { onConflict: 'id' }).select();
-            if (!error && data && data.length > 0) {
-                currentShop.id = data[0].id;
-                currentShop.name = data[0].name;
-                console.log('Seeded gobstore into Supabase stores table:', data[0]);
-                return;
-            }
-        } catch (e) {
-            console.warn('Supabase store seed attempt notice:', e);
-        }
-    }
-    // Direct REST fallback
-    const config = JSON.parse(localStorage.getItem('labis_api_config')) || {};
-    const supabaseUrl = config.supabaseUrl || SUPABASE_DEFAULT_URL;
-    const supabaseKey = config.supabaseAnonKey || SUPABASE_DEFAULT_ANON_KEY;
-    try {
-        await fetch(`${supabaseUrl}/rest/v1/stores`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'apikey': supabaseKey,
-                'Authorization': `Bearer ${supabaseKey}`,
-                'Prefer': 'resolution=merge-duplicates,return=representation'
-            },
-            body: JSON.stringify(seedStore)
-        });
-    } catch (err) {}
-}
+// Anon storefront must not upsert stores (RLS 401/403). Keep in-memory GOBSTORE defaults.
 
 // --- Live Storage Bucket Garments Catalog Definition (Apparel Only) ---
 const STORAGE_BUCKET_GARMENTS = [
@@ -204,59 +185,18 @@ function isFootwearItem(item) {
     );
 }
 
-// --- Seed garments table in Supabase directly from public storage bucket ---
-async function syncStorageGarmentsToDatabase(client, storeId = GOBSTORE_UUID) {
-    const rows = STORAGE_BUCKET_GARMENTS.map(item => ({
+/** Local apparel rows only — never DELETE/UPSERT with the anon key (RLS 401/403). */
+function getLocalApparelFallback(storeId = GOBSTORE_UUID) {
+    return STORAGE_BUCKET_GARMENTS.map(item => ({
         id: item.id,
         store_id: storeId,
-        shop_id: storeId,
         title: item.title,
         category: item.category,
         price: item.price,
         image_url: `${SUPABASE_STORAGE_BASE_URL}gobsrote/${encodeURIComponent(item.file)}`,
+        anywear_model_id: item.anywearModelId,
         ar_ready: true
     }));
-
-    if (client) {
-        try {
-            await client.from('garments').delete().in('id', ['grm-1', 'grm-2', 'grm-3', 'grm-4', 'grm-5']);
-            await client.from('garments').delete().ilike('category', '%footwear%');
-            await client.from('garments').delete().ilike('title', '%shoe%');
-        } catch (e) {}
-
-        try {
-            const { data, error } = await client.from('garments').upsert(rows, { onConflict: 'id' }).select();
-            if (!error && data && data.length > 0) {
-                console.log(`Successfully synced ${data.length} garments from storage bucket to public.garments`);
-                return data;
-            }
-        } catch (e) {
-            console.warn('Supabase JS garments upsert notice:', e);
-        }
-    }
-
-    // Direct REST Fallback
-    const config = JSON.parse(localStorage.getItem('labis_api_config')) || {};
-    const supabaseUrl = config.supabaseUrl || SUPABASE_DEFAULT_URL;
-    const supabaseKey = config.supabaseAnonKey || SUPABASE_DEFAULT_ANON_KEY;
-    try {
-        const res = await fetch(`${supabaseUrl}/rest/v1/garments`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'apikey': supabaseKey,
-                'Authorization': `Bearer ${supabaseKey}`,
-                'Prefer': 'resolution=merge-duplicates,return=representation'
-            },
-            body: JSON.stringify(rows)
-        });
-        if (res.ok) {
-            const inserted = await res.json();
-            return inserted;
-        }
-    } catch (err) {}
-
-    return rows;
 }
 
 // --- Dynamic Store Branding Fetcher strictly from Supabase (No localStorage for stores) ---
@@ -264,12 +204,14 @@ async function initShopBranding() {
     const { shopId } = getUrlParams();
     const client = getSupabaseClient();
 
-    // Query store directly from Supabase stores table
     if (client) {
         try {
+            const shopFilter = getSafeShopFilter(shopId);
             let query = client.from('stores').select('*');
-            if (shopId) {
-                query = query.or(`id.eq.${shopId},name.ilike.%${shopId}%`);
+            if (shopFilter.uuid) {
+                query = query.eq('id', shopFilter.uuid);
+            } else if (shopFilter.name) {
+                query = query.ilike('name', `%${shopFilter.name}%`);
             } else {
                 query = query.ilike('name', '%gobstore%');
             }
@@ -283,16 +225,10 @@ async function initShopBranding() {
                     owner_whatsapp: found.owner_whatsapp || found.phone || '+252634410293',
                     accentColor: found.accent_color || '#c49a6c'
                 };
-            } else {
-                // If not found in database, seed gobstore directly into stores table
-                await seedGobstore(client);
             }
         } catch (e) {
             console.warn('Supabase store query fallback:', e);
-            await seedGobstore(client);
         }
-    } else {
-        await seedGobstore(null);
     }
 
     // Update DOM Branding Elements
@@ -312,25 +248,26 @@ async function fetchAndRenderGarments() {
     const container = document.getElementById('store-products-grid');
     if (!container) return;
 
-    // Show stylish glass skeleton loader
-    container.innerHTML = `
-        <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: #888;">
-            <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 28px; color: #111; margin-bottom: 12px;"></i>
-            <p style="font-size: 13px; font-weight: 600;">Loading 3D AR Garment Collection from Cloud Database...</p>
-        </div>
-    `;
+    const hasStaticCards = container.querySelector('.product-card');
+    if (!hasStaticCards) {
+        container.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: #888;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 28px; color: #111; margin-bottom: 12px;"></i>
+                <p style="font-size: 13px; font-weight: 600;">Loading 3D AR Garment Collection from Cloud Database...</p>
+            </div>
+        `;
+    }
 
     const client = getSupabaseClient();
     const { shopId, garmentId } = getUrlParams();
     let dbGarments = [];
 
-    // Query garments table from Supabase
     if (client) {
         try {
+            const shopFilter = getSafeShopFilter(shopId);
             let query = client.from('garments').select('*');
-            // If shop is specified, filter garments by store_id or shop_id
-            if (shopId) {
-                query = query.or(`shop_id.eq.${shopId},store_id.eq.${shopId}`);
+            if (shopFilter.uuid) {
+                query = query.eq('store_id', shopFilter.uuid);
             }
             const { data, error } = await query;
             if (!error && Array.isArray(data) && data.length > 0) {
@@ -343,14 +280,12 @@ async function fetchAndRenderGarments() {
         }
     }
 
-    // Exclude any footwear or shoe items from query results
     if (Array.isArray(dbGarments)) {
         dbGarments = dbGarments.filter(g => !isFootwearItem(g));
     }
 
-    // If Supabase returned no rows, automatically sync the apparel storage bucket garments into the table
     if (!dbGarments || dbGarments.length === 0) {
-        dbGarments = await syncStorageGarmentsToDatabase(client, currentShop.id);
+        dbGarments = getLocalApparelFallback(currentShop.id);
     }
 
     // Map database rows into structured storefront models (Strictly Apparel: Shirts, Pants, Outerwear)
@@ -401,6 +336,75 @@ async function fetchAndRenderGarments() {
     }
 }
 
+// --- Update Product Schema for Anywear / Decart Scanner ---
+function updateProductJsonLd(garments) {
+    try {
+        let script = document.getElementById('decart-product-schema');
+        if (!script) {
+            script = document.createElement('script');
+            script.id = 'decart-product-schema';
+            script.type = 'application/ld+json';
+            document.head.appendChild(script);
+        }
+        const list = (garments && garments.length > 0) ? garments : STORAGE_BUCKET_GARMENTS;
+        const graph = list.map(item => ({
+            '@type': 'Product',
+            'name': item.title,
+            'image': item.image || item.file,
+            'description': `${item.title} — Luxury Men's Fashion with 3D Try-On`,
+            'category': item.category || 'Apparel',
+            'offers': {
+                '@type': 'Offer',
+                'price': String(item.price || '49.99'),
+                'priceCurrency': 'USD'
+            }
+        }));
+        script.textContent = JSON.stringify({
+            '@context': 'https://schema.org',
+            '@graph': graph
+        });
+    } catch (e) {
+        console.warn('JSON-LD update notice:', e);
+    }
+}
+
+// --- Force Anywear / Decart Widget to Scan and Render Mobile Badges ---
+function pingAnywearScanner() {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new Event('resize'));
+    window.dispatchEvent(new Event('scroll'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    try {
+        if (window.Anywear && typeof window.Anywear.refresh === 'function') window.Anywear.refresh();
+        else if (window.Anywear && typeof window.Anywear.scan === 'function') window.Anywear.scan();
+        else if (window.Anywear && typeof window.Anywear.init === 'function') window.Anywear.init();
+    } catch (e) {}
+}
+
+function notifyAnywearDOMUpdate() {
+    if (typeof window === 'undefined') return;
+
+    pingAnywearScanner();
+
+    const images = document.querySelectorAll('#store-products-grid img, #spotlight-container img');
+    images.forEach(img => {
+        if (!img.complete) {
+            img.addEventListener('load', pingAnywearScanner, { once: true });
+        }
+    });
+
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+            pingAnywearScanner();
+            requestAnimationFrame(pingAnywearScanner);
+        });
+    }
+
+    setTimeout(pingAnywearScanner, 200);
+    setTimeout(pingAnywearScanner, 600);
+    setTimeout(pingAnywearScanner, 1200);
+}
+
 // --- Render Product Cards Dynamically ---
 function renderStoreProducts() {
     const container = document.getElementById('store-products-grid');
@@ -434,7 +438,7 @@ function renderStoreProducts() {
                     <i class="fa-regular fa-heart"></i>
                 </button>
 
-                <img src="${item.image}" alt="${item.title}" loading="lazy" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
+                <img src="${item.image}" alt="${item.title}" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
             </div>
 
             <div class="product-info">
@@ -471,6 +475,9 @@ function renderStoreProducts() {
         </div>
         `;
     }).join('');
+
+    updateProductJsonLd(storeGarments);
+    notifyAnywearDOMUpdate();
 }
 
 // ==========================================================================
@@ -520,7 +527,7 @@ function renderSpotlightView(garmentId) {
                 $${targetGarment.price.toFixed(2)}
             </p>
 
-            <div style="width: 100%; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative;">
+            <div class="product-img-wrap" style="width: 100%; height: auto; min-height: 240px; border-radius: 20px; overflow: visible; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative;">
                 <img id="spotlight-garment-image" 
                      src="${targetGarment.image}" 
                      alt="${targetGarment.title}" 
@@ -538,6 +545,7 @@ function renderSpotlightView(garmentId) {
 
     spotlightSection.style.display = 'block';
     spotlightSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    notifyAnywearDOMUpdate();
 }
 
 // "View Full Catalog" Toggle Action
@@ -552,6 +560,7 @@ function showFullCatalog() {
         productsSection.style.display = 'block';
         productsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+    notifyAnywearDOMUpdate();
 }
 
 // ==========================================================================
@@ -660,7 +669,7 @@ async function submitLeadGate(e) {
     const modal = document.getElementById('lead-modal');
     const mainContent = document.getElementById('main-store-content');
 
-    setTimeout(() => {
+    function unlockVipGate() {
         if (typeof document !== 'undefined' && document.body) {
             document.body.classList.remove('gate-active');
         }
@@ -671,7 +680,11 @@ async function submitLeadGate(e) {
         if (mainContent) {
             mainContent.classList.remove('blurred-gate');
         }
-    }, 400);
+        notifyAnywearDOMUpdate();
+    }
+
+    unlockVipGate();
+    setTimeout(notifyAnywearDOMUpdate, 400);
 
     // Post-Submission Display Logic (Spotlight scanned garment or full catalog)
     if (garmentId) {
@@ -854,6 +867,7 @@ if (typeof window !== 'undefined') {
     window.launchVirtualTryOn = launchVirtualTryOn;
     window.closeTryOnModal = closeTryOnModal;
     window.openTryOnModal = openTryOnModal;
+    window.notifyAnywearDOMUpdate = notifyAnywearDOMUpdate;
 }
 
 // Category Filter Helper (Apparel Only)
@@ -928,4 +942,7 @@ window.onload = async function() {
             showFullCatalog();
         }
     }
+
+    // Trigger Anywear scan sweep after initial boot completion
+    notifyAnywearDOMUpdate();
 };
