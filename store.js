@@ -265,15 +265,50 @@ async function fetchAndRenderGarments() {
     if (client) {
         try {
             const shopFilter = getSafeShopFilter(shopId);
-            let query = client.from('garments').select('*');
-            if (shopFilter.uuid) {
-                query = query.eq('store_id', shopFilter.uuid);
+            let resolvedStoreId = shopFilter.uuid;
+
+            // Resolve text slugs to the stores.id UUID before querying garments.
+            // The storefront schema uses stores.id -> garments.store_id.
+            if (!resolvedStoreId && shopFilter.name) {
+                let shopLookup = await client
+                    .from('stores')
+                    .select('id')
+                    .eq('slug', shopFilter.name)
+                    .maybeSingle();
+
+                // Older store rows may not have a slug column; retain compatibility
+                // with the existing name-based branding lookup.
+                if (shopLookup.error || !shopLookup.data) {
+                    shopLookup = await client
+                        .from('stores')
+                        .select('id')
+                        .ilike('name', shopFilter.name)
+                        .maybeSingle();
+                }
+
+                if (!shopLookup.error && shopLookup.data && isValidUUID(shopLookup.data.id)) {
+                    resolvedStoreId = shopLookup.data.id;
+                } else {
+                    console.warn('No matching store found for shop slug:', shopFilter.name);
+                }
             }
-            const { data, error } = await query;
-            if (!error && Array.isArray(data) && data.length > 0) {
-                dbGarments = data;
-            } else if (error) {
-                console.warn('Supabase garments query notice:', error);
+
+            // Do not issue an unfiltered garments query when a shop slug was
+            // supplied but could not be resolved; local apparel fallback handles it.
+            let query = client.from('garments').select('*');
+            if (resolvedStoreId) {
+                query = query.eq('store_id', resolvedStoreId);
+            } else if (shopFilter.name) {
+                query = null;
+            }
+
+            if (query) {
+                const { data, error } = await query;
+                if (!error && Array.isArray(data) && data.length > 0) {
+                    dbGarments = data;
+                } else if (error) {
+                    console.warn('Supabase garments query notice:', error);
+                }
             }
         } catch (err) {
             console.warn('Supabase garments fetch exception:', err);
@@ -696,7 +731,13 @@ async function submitLeadGate(e) {
     // Activity Telemetry Log
     const now = new Date();
     const dateFormatted = now.toISOString().slice(0, 10) + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const storedLogs = JSON.parse(localStorage.getItem('labis_logs')) || [];
+    let storedLogs = [];
+    try {
+        const parsedLogs = JSON.parse(localStorage.getItem('labis_logs') || '[]');
+        if (Array.isArray(parsedLogs)) storedLogs = parsedLogs;
+    } catch (e) {
+        console.warn('Lead telemetry cache reset notice:', e);
+    }
     storedLogs.unshift({
         id: 'log-' + Date.now(),
         type: 'LEAD',
@@ -717,7 +758,15 @@ async function submitLeadGate(e) {
         newLead.store_id = activeStoreId.trim();
     }
 
-    postLeadToSupabase(newLead).catch(err => console.warn('Supabase post lead notice:', err));
+    enqueuePendingLead({
+        ...newLead,
+        phone: formattedPhone,
+        shop_id: activeStoreId || null,
+        timestamp: new Date().toISOString(),
+        status: 'pending'
+    });
+    void flushPendingLeads();
+
     postLeadToWebhook({
         ...newLead,
         shop: currentShop.name,
@@ -743,7 +792,15 @@ function highlightTargetGarment(garmentId) {
 // Insert strictly into Supabase database `public.leads` table using full_name, whatsapp_number, store_id (UUID) + eKYC metadata
 async function postLeadToSupabase(leadRecord) {
     const client = getSupabaseClient();
-    const config = (typeof window !== 'undefined' && window.localStorage && JSON.parse(localStorage.getItem('labis_api_config') || '{}')) || {};
+    let config = {};
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const parsedConfig = JSON.parse(localStorage.getItem('labis_api_config') || '{}');
+            if (parsedConfig && typeof parsedConfig === 'object') config = parsedConfig;
+        }
+    } catch (e) {
+        console.warn('API config cache parse notice:', e);
+    }
     const supabaseUrl = config.supabaseUrl || SUPABASE_URL || SUPABASE_DEFAULT_URL;
     const supabaseKey = config.supabaseAnonKey || SUPABASE_ANON_KEY || SUPABASE_DEFAULT_ANON_KEY;
 
@@ -776,12 +833,12 @@ async function postLeadToSupabase(leadRecord) {
             const { data, error } = await client.from('leads').insert([payloadWithMeta]);
             if (!error) {
                 console.log('Lead synced to public.leads with eKYC metadata:', data || payloadWithMeta);
-                return;
+                return true;
             } else if (error && (error.message.includes('column') || error.code === '42703')) {
                 // If columns whatsapp_verified or ekyc_check_id do not exist in table schema, fallback to base columns
                 console.log('Falling back to standard 3-column lead schema:', error.message);
                 const { data: baseData, error: baseErr } = await client.from('leads').insert([basePayload]);
-                if (!baseErr) return;
+                if (!baseErr) return true;
             } else {
                 console.warn('Supabase JS SDK insert notice:', error);
             }
@@ -802,9 +859,10 @@ async function postLeadToSupabase(leadRecord) {
             },
             body: JSON.stringify(payloadWithMeta)
         });
+        if (res.ok) return true;
         if (!res.ok) {
             // Fallback to base columns on REST if schema error
-            await fetch(`${supabaseUrl}/rest/v1/leads`, {
+            const baseRes = await fetch(`${supabaseUrl}/rest/v1/leads`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -814,15 +872,97 @@ async function postLeadToSupabase(leadRecord) {
                 },
                 body: JSON.stringify(basePayload)
             });
+            return baseRes.ok;
         }
     } catch (err) {
         console.warn('Supabase REST insert notice:', err);
+    }
+
+    return false;
+}
+
+// --------------------------------------------------------------------------
+// Offline lead retry queue
+// --------------------------------------------------------------------------
+function readPendingLeads() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('pending_leads') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        console.warn('Pending lead queue reset notice:', e);
+        return [];
+    }
+}
+
+function writePendingLeads(leads) {
+    try {
+        localStorage.setItem('pending_leads', JSON.stringify(leads));
+    } catch (e) {
+        console.warn('Pending lead queue write notice:', e);
+    }
+}
+
+function enqueuePendingLead(leadRecord) {
+    const pendingLeads = readPendingLeads();
+    pendingLeads.push({
+        ...leadRecord,
+        queue_id: `lead-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        status: 'pending'
+    });
+    writePendingLeads(pendingLeads);
+}
+
+let pendingLeadsFlushPromise = null;
+
+async function flushPendingLeads() {
+    if (pendingLeadsFlushPromise) return pendingLeadsFlushPromise;
+
+    pendingLeadsFlushPromise = (async () => {
+        const pendingLeads = readPendingLeads();
+        if (pendingLeads.length === 0) return;
+
+        const getQueueId = (queuedLead, index) => queuedLead.queue_id || `legacy-${queuedLead.timestamp || 'no-timestamp'}-${index}`;
+        const syncedQueueIds = new Set();
+        const failedQueueIds = new Set();
+        for (const [index, queuedLead] of pendingLeads.entries()) {
+            if (!queuedLead || typeof queuedLead !== 'object') continue;
+
+            const queueId = getQueueId(queuedLead, index);
+            const synced = await postLeadToSupabase(queuedLead);
+            if (!synced) {
+                failedQueueIds.add(queueId);
+            } else {
+                syncedQueueIds.add(queueId);
+            }
+        }
+
+        // Merge against the latest storage value so a lead submitted while the
+        // network request was in flight is never overwritten.
+        const latestLeads = readPendingLeads();
+        const remainingLeads = latestLeads.filter((queuedLead, index) => {
+            if (!queuedLead || typeof queuedLead !== 'object') return false;
+            const queueId = getQueueId(queuedLead, index);
+            return !syncedQueueIds.has(queueId) || failedQueueIds.has(queueId);
+        });
+        writePendingLeads(remainingLeads);
+    })();
+
+    try {
+        return await pendingLeadsFlushPromise;
+    } finally {
+        pendingLeadsFlushPromise = null;
     }
 }
 
 // Webhook Dispatcher
 function postLeadToWebhook(leadData) {
-    const config = JSON.parse(localStorage.getItem('labis_api_config')) || {};
+    let config = {};
+    try {
+        const parsedConfig = JSON.parse(localStorage.getItem('labis_api_config') || '{}');
+        if (parsedConfig && typeof parsedConfig === 'object') config = parsedConfig;
+    } catch (e) {
+        console.warn('Webhook config cache parse notice:', e);
+    }
     if (config.webhookUrl) {
         try {
             fetch(config.webhookUrl, {
@@ -907,8 +1047,13 @@ function openLeadModal(targetGarmentId = null) {
     }
 }
 
+if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => { void flushPendingLeads(); });
+}
+
 // Onload Boot — Universal Lead Gate (All Traffic Sources) & Session Persistence
 window.onload = async function() {
+    void flushPendingLeads();
     await initShopBranding();
     await fetchAndRenderGarments();
 
