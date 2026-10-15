@@ -654,6 +654,30 @@ body.featured-product-modal-open {
     overflow: visible;
 }
 
+.catalog-message {
+    grid-column: 1 / -1;
+    padding: 48px 16px;
+    color: #777;
+    text-align: center;
+    font-size: 14px;
+}
+
+.product-card[data-try-on-enabled="false"] .anywear-badge-container,
+.product-card[data-try-on-enabled="false"] .anywear-badge,
+.product-card[data-try-on-enabled="false"] anywear-widget,
+.product-card[data-try-on-enabled="false"] anywear-button,
+.product-card[data-try-on-enabled="false"] [class*="vton"],
+.product-card[data-try-on-enabled="false"] [class*="try-on"] {
+    display: none !important;
+}
+
+.featured-product-image-wrap[data-try-on-enabled="false"] .anywear-badge-container,
+.featured-product-image-wrap[data-try-on-enabled="false"] .anywear-badge,
+.featured-product-image-wrap[data-try-on-enabled="false"] [class*="vton"],
+.featured-product-image-wrap[data-try-on-enabled="false"] [class*="try-on"] {
+    display: none !important;
+}
+
 /* Product Card */
 .product-card {
     background: #ffffff;

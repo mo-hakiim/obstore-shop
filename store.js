@@ -83,8 +83,6 @@ async function verifyWhatsAppPhoneEkyc(rawPhone) {
 }
 
 // Active Store Constants & State
-const GOBSTORE_UUID = 'e0c7a5f1-3d2b-4c8e-9f1a-5b7d6e4c3a2b';
-
 function isValidUUID(str) {
     return typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
@@ -92,11 +90,11 @@ function isValidUUID(str) {
 function getValidStoreId(candidateId) {
     if (isValidUUID(candidateId)) return candidateId;
     if (currentShop && isValidUUID(currentShop.id)) return currentShop.id;
-    return GOBSTORE_UUID;
+    return null;
 }
 
 let currentShop = {
-    id: GOBSTORE_UUID,
+    id: null,
     name: 'gobstore',
     phone: '+252634410293',
     owner_whatsapp: '+252634410293',
@@ -104,6 +102,7 @@ let currentShop = {
 };
 let storeGarments = [];
 let allStoreGarments = []; // Cached copy for category filtering
+let fullCatalogLoaded = false;
 
 // --- URL Parameter Extraction (store_id & garment_id focus) ---
 function getUrlParams() {
@@ -111,7 +110,7 @@ function getUrlParams() {
     return {
         shopId: params.get('shop') || params.get('shop_id') || params.get('store_id') || params.get('store'),
         garmentId: params.get('garment') || params.get('garment_id') || params.get('item_id') || params.get('ref'),
-        productId: params.get('product') || params.get('item')
+        productId: params.get('product') || params.get('item') || params.get('id')
     };
 }
 
@@ -165,24 +164,12 @@ function resolveGarmentImageUrl(rawImage, category = 'Apparel') {
 
 // Anon storefront must not upsert stores (RLS 401/403). Keep in-memory GOBSTORE defaults.
 
-// --- Live Storage Bucket Garments Catalog Definition (Apparel Only) ---
-const STORAGE_BUCKET_GARMENTS = [
-    { id: 'grm-6', title: 'Tailored Shirt', category: 'Shirts', price: 55.00, file: 'shrit.jfif', anywearModelId: 'grm-6' },
-    { id: 'grm-7', title: 'Classic Button-Up Shirt II', category: 'Shirts', price: 58.00, file: 'shirt2.jfif', anywearModelId: 'grm-7' },
-    { id: 'grm-8', title: 'Formal Dress Shirt III', category: 'Shirts', price: 62.00, file: 'shirt3.jfif', anywearModelId: 'grm-8' },
-    { id: 'grm-9', title: 'Slim Fit Pants', category: 'Pants', price: 65.00, file: 'pants.jfif', anywearModelId: 'grm-9' },
-    { id: 'grm-10', title: 'Chino Trousers II', category: 'Pants', price: 68.00, file: 'pants 2.jfif', anywearModelId: 'grm-10' },
-    { id: 'grm-11', title: 'Formal Trousers III', category: 'Pants', price: 72.00, file: 'pants3.jfif', anywearModelId: 'grm-11' }
-];
-
 // Helper: Filter out any footwear or shoe items
 function isFootwearItem(item) {
     if (!item) return false;
     const cat = String(item.category || '').toLowerCase();
     const title = String(item.title || item.name || '').toLowerCase();
     const file = String(item.file || item.image_url || item.image || item.photo || '').toLowerCase();
-    const id = String(item.id || '').toLowerCase();
-
     return (
         cat.includes('footwear') ||
         cat.includes('shoe') ||
@@ -194,24 +181,8 @@ function isFootwearItem(item) {
         title.includes('footwear') ||
         title.includes('leather shoe') ||
         title.includes('loafer') ||
-        file.includes('sheo') ||
-        file.includes('shoe') ||
-        ['grm-1', 'grm-2', 'grm-3', 'grm-4', 'grm-5'].includes(id)
+        file.includes('shoe')
     );
-}
-
-/** Local apparel rows only — never DELETE/UPSERT with the anon key (RLS 401/403). */
-function getLocalApparelFallback(storeId = GOBSTORE_UUID) {
-    return STORAGE_BUCKET_GARMENTS.map(item => ({
-        id: item.id,
-        store_id: storeId,
-        title: item.title,
-        category: item.category,
-        price: item.price,
-        image_url: `${SUPABASE_STORAGE_BASE_URL}gobsrote/${encodeURIComponent(item.file)}`,
-        anywear_model_id: item.anywearModelId,
-        ar_ready: true
-    }));
 }
 
 // --- Dynamic Store Branding Fetcher strictly from Supabase (No localStorage for stores) ---
@@ -226,11 +197,18 @@ async function initShopBranding() {
             if (shopFilter.uuid) {
                 query = query.eq('id', shopFilter.uuid);
             } else if (shopFilter.name) {
-                query = query.ilike('name', `%${shopFilter.name}%`);
+                query = query.eq('slug', shopFilter.name);
             } else {
                 query = query.ilike('name', '%gobstore%');
             }
-            const { data, error } = await query;
+            let { data, error } = await query;
+            if ((!data || data.length === 0) && shopFilter.name) {
+                const byName = await client.from('stores').select('*').ilike('name', shopFilter.name);
+                if (!byName.error) {
+                    data = byName.data;
+                    error = null;
+                }
+            }
             if (!error && Array.isArray(data) && data.length > 0) {
                 const found = data[0];
                 currentShop = {
@@ -259,130 +237,97 @@ async function initShopBranding() {
 }
 
 // --- Dynamic Garments Fetcher from Supabase Database & Public Storage ---
-async function fetchAndRenderGarments() {
-    const container = document.getElementById('store-products-grid');
-    if (!container) return;
-
-    const hasStaticCards = container.querySelector('.product-card');
-    if (!hasStaticCards) {
-        container.innerHTML = `
-            <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: #888;">
-                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 28px; color: #111; margin-bottom: 12px;"></i>
-                <p style="font-size: 13px; font-weight: 600;">Loading 3D AR Garment Collection from Cloud Database...</p>
-            </div>
-        `;
+async function resolveStoreId(rawShopId = null) {
+    const filter = getSafeShopFilter(rawShopId);
+    if (filter.uuid) return filter.uuid;
+    if (filter.name) {
+        const { data, error } = await getSupabaseClient().from('stores').select('id').eq('slug', filter.name).maybeSingle();
+        if (!error && data && isValidUUID(data.id)) return data.id;
+        const byName = await getSupabaseClient().from('stores').select('id').ilike('name', filter.name).maybeSingle();
+        if (!byName.error && byName.data && isValidUUID(byName.data.id)) return byName.data.id;
+        return null;
     }
-
-    const client = getSupabaseClient();
-    const { shopId } = getUrlParams();
-    const focusedProductId = getFocusedProductId();
-    let dbGarments = [];
-
-    if (client) {
-        try {
-            const shopFilter = getSafeShopFilter(shopId);
-            let resolvedStoreId = shopFilter.uuid;
-
-            // Resolve text slugs to the stores.id UUID before querying garments.
-            // The storefront schema uses stores.id -> garments.store_id.
-            if (!resolvedStoreId && shopFilter.name) {
-                let shopLookup = await client
-                    .from('stores')
-                    .select('id')
-                    .eq('slug', shopFilter.name)
-                    .maybeSingle();
-
-                // Older store rows may not have a slug column; retain compatibility
-                // with the existing name-based branding lookup.
-                if (shopLookup.error || !shopLookup.data) {
-                    shopLookup = await client
-                        .from('stores')
-                        .select('id')
-                        .ilike('name', shopFilter.name)
-                        .maybeSingle();
-                }
-
-                if (!shopLookup.error && shopLookup.data && isValidUUID(shopLookup.data.id)) {
-                    resolvedStoreId = shopLookup.data.id;
-                } else {
-                    console.warn('No matching store found for shop slug:', shopFilter.name);
-                }
-            }
-
-            // Do not issue an unfiltered garments query when a shop slug was
-            // supplied but could not be resolved; local apparel fallback handles it.
-            let query = client.from('garments').select('*');
-            if (resolvedStoreId) {
-                query = query.eq('store_id', resolvedStoreId);
-            } else if (shopFilter.name) {
-                query = null;
-            }
-
-            if (query) {
-                const { data, error } = await query;
-                if (!error && Array.isArray(data) && data.length > 0) {
-                    dbGarments = data;
-                } else if (error) {
-                    console.warn('Supabase garments query notice:', error);
-                }
-            }
-        } catch (err) {
-            console.warn('Supabase garments fetch exception:', err);
-        }
-    }
-
-    if (Array.isArray(dbGarments)) {
-        dbGarments = dbGarments.filter(g => !isFootwearItem(g));
-    }
-
-    if (!dbGarments || dbGarments.length === 0) {
-        dbGarments = getLocalApparelFallback(currentShop.id);
-    }
-
-    // Map database rows into structured storefront models (Strictly Apparel: Shirts, Pants, Outerwear)
-    storeGarments = dbGarments
-        .filter(g => !isFootwearItem(g))
-        .map((g, idx) => {
-            const rawImg = g.image_url || g.image || g.img_url || g.photo;
-            const resolvedImg = resolveGarmentImageUrl(rawImg, g.category);
-            const resolvedPrice = parseFloat(g.price) || 49.99;
-            const resolvedId = String(g.id || `grm-${idx + 6}`);
-
-            return {
-                id: resolvedId,
-                dbId: g.id,
-                storeId: g.store_id || g.shop_id || currentShop.id,
-                title: g.title || g.name || 'Signature Apparel',
-                category: g.category || 'Apparel',
-                price: resolvedPrice,
-                originalPrice: g.original_price ? parseFloat(g.original_price) : (resolvedPrice * 1.25),
-                discount: g.discount || (idx % 2 === 0 ? '-20%' : null),
-                rating: g.rating ? parseFloat(g.rating) : 4.9,
-                reviews: g.reviews ? parseInt(g.reviews, 10) : (42 + (idx * 11)),
-                colors: g.colors && Array.isArray(g.colors) ? g.colors : ['#111111', '#c49a6c', '#4b5563'],
-                image: resolvedImg,
-                anywearModelId: g.anywear_model_id || g.anywearModelId || resolvedId,
-                arUrl: g.ar_url || `https://anywear.decart.ai/virtual-try-on?model=${encodeURIComponent(g.anywear_model_id || resolvedId)}`
-            };
-        });
-
-    // If specific garmentId is in URL, bring that item to the very top
-    if (focusedProductId) {
-        const targetIndex = storeGarments.findIndex(g => 
-            String(g.id) === String(focusedProductId) ||
-            (g.title && g.title.toLowerCase().includes(String(focusedProductId).toLowerCase()))
-        );
-        if (targetIndex > -1) {
-            const [targetItem] = storeGarments.splice(targetIndex, 1);
-            storeGarments.unshift(targetItem);
-        }
-    }
-
-    allStoreGarments = [...storeGarments];
-    renderStoreProducts();
-
+    return isValidUUID(currentShop.id) ? currentShop.id : null;
 }
 
+function mapStoreGarment(row) {
+    const imageUrls = Array.isArray(row.image_urls) ? row.image_urls : [];
+    const image = resolveGarmentImageUrl(row.image_url || imageUrls[0] || row.image || row.img_url || row.photo);
+    const price = Number(row.price);
+    return {
+        id: String(row.id), dbId: row.id,
+        storeId: row.store_id || row.shop_id || currentShop.id,
+        title: row.title || row.name || 'Garment',
+        description: row.description || '',
+        category: row.category || 'Apparel',
+        price: Number.isFinite(price) ? price : 0,
+        originalPrice: row.original_price ? Number(row.original_price) : null,
+        discount: row.discount || null,
+        rating: row.rating ? Number(row.rating) : 4.9,
+        reviews: row.reviews ? Number.parseInt(row.reviews, 10) : 0,
+        colors: Array.isArray(row.colors) ? row.colors : [],
+        image,
+        imageUrls: imageUrls.length ? imageUrls.map(resolveGarmentImageUrl) : [image],
+        tryOnEnabled: row.try_on_enabled !== false && row.ar_ready !== false,
+        anywearModelId: row.anywear_model_id || row.id,
+        arUrl: row.ar_url || null
+    };
+}
+
+async function fetchAndRenderGarments({ fullCatalog = false } = {}) {
+    const container = document.getElementById('store-products-grid');
+    if (!container) return false;
+    const client = getSupabaseClient();
+    if (!client) {
+        container.innerHTML = '<p class="catalog-message">The catalog is temporarily unavailable.</p>';
+        return false;
+    }
+
+    const focusedProductId = getFocusedProductId();
+    const singleItemMode = Boolean(focusedProductId && !fullCatalog);
+    container.innerHTML = '<p class="catalog-message">Loading the store catalog…</p>';
+    try {
+        let query = client.from('garments').select('*').eq('is_active', true);
+        if (singleItemMode) {
+            if (!isValidUUID(String(focusedProductId))) {
+                container.innerHTML = '<p class="catalog-message">This product link is invalid or expired.</p>';
+                storeGarments = [];
+                allStoreGarments = [];
+                return false;
+            }
+            const explicitShop = getUrlParams().shopId;
+            if (explicitShop) {
+                const storeId = await resolveStoreId(explicitShop);
+                if (!storeId) throw new Error('This product link refers to an unknown store.');
+                query = query.eq('store_id', storeId);
+            }
+            query = query.eq('id', focusedProductId).maybeSingle();
+        } else {
+            const storeId = await resolveStoreId(getUrlParams().shopId);
+            if (!storeId) throw new Error('Store not found. Open a store link with a valid store ID or slug.');
+            currentShop.id = storeId;
+            query = query.eq('store_id', storeId).order('created_at', { ascending: false });
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        const rows = singleItemMode ? (data ? [data] : []) : (Array.isArray(data) ? data : []);
+        storeGarments = rows.filter(row => !isFootwearItem(row)).map(mapStoreGarment);
+        allStoreGarments = [...storeGarments];
+        if (!singleItemMode) fullCatalogLoaded = true;
+        renderStoreProducts();
+        if (singleItemMode && storeGarments.length === 0) {
+            container.innerHTML = '<p class="catalog-message">This garment could not be found or is no longer available.</p>';
+        }
+        return true;
+    } catch (error) {
+        console.error('Supabase catalog request failed:', error);
+        container.innerHTML = `<p class="catalog-message">${escapeHtml(error.message || 'Unable to load the catalog. Please try again.')}</p>`;
+        storeGarments = [];
+        allStoreGarments = [];
+        return false;
+    }
+}
 // --- Update Product Schema for Anywear / Decart Scanner ---
 function updateProductJsonLd(garments) {
     try {
@@ -393,12 +338,12 @@ function updateProductJsonLd(garments) {
             script.type = 'application/ld+json';
             document.head.appendChild(script);
         }
-        const list = (garments && garments.length > 0) ? garments : STORAGE_BUCKET_GARMENTS;
+        const list = (Array.isArray(garments) ? garments : []).filter(item => item.tryOnEnabled !== false && item.try_on_enabled !== false);
         const graph = list.map(item => ({
             '@type': 'Product',
             'name': item.title,
-            'image': item.image || item.file,
-            'description': `${item.title} — Luxury Men's Fashion with 3D Try-On`,
+            'image': item.image,
+            'description': item.description || `${item.title} — GOBSTORE apparel`,
             'category': item.category || 'Apparel',
             'offers': {
                 '@type': 'Offer',
@@ -461,10 +406,11 @@ function renderStoreProducts() {
         container.innerHTML = `
             <div style="grid-column: 1/-1; text-align: center; padding: 48px 16px; color: #888;">
                 <i class="fa-solid fa-shirt" style="font-size: 32px; color: #ccc; margin-bottom: 12px;"></i>
-                <p style="font-size: 14px; font-weight: 700; color: #222;">No Garments Available In This Outlet</p>
-                <p style="font-size: 12px; margin-top: 4px;">Items added via the Merchant Dashboard will sync here in real-time.</p>
+                <p style="font-size: 14px; font-weight: 700; color: #222;">No active garments are available.</p>
             </div>
         `;
+        updateProductJsonLd([]);
+        notifyAnywearDOMUpdate();
         return;
     }
 
@@ -475,9 +421,13 @@ function renderStoreProducts() {
         const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering/trying on: ${item.title} ($${item.price.toFixed(2)}).`);
         const waLink = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
         const modelId = item.anywearModelId || item.id;
+        const enabled = item.tryOnEnabled !== false;
+        const safeTitle = escapeHtml(item.title);
+        const safeCategory = escapeHtml(item.category);
+        const safeImage = escapeHtml(item.image);
 
         return `
-        <div id="product-card-${item.id}" class="product-card ${isTarget ? 'garment-focused' : ''}" data-product-id="${item.id}" data-model-id="${modelId}">
+        <div id="product-card-${escapeHtml(item.id)}" class="product-card ${isTarget ? 'garment-focused' : ''}" data-product-id="${escapeHtml(item.id)}" data-model-id="${enabled ? escapeHtml(modelId) : ''}" data-try-on-enabled="${enabled}">
             <div class="product-img-wrap" style="position: relative;">
                 ${item.discount ? `<span class="discount-badge">${item.discount}</span>` : ''}
 
@@ -485,15 +435,15 @@ function renderStoreProducts() {
                     <i class="fa-regular fa-heart"></i>
                 </button>
 
-                <img src="${item.image}" alt="${item.title}" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
+                <img src="${safeImage}" alt="${safeTitle}" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
             </div>
 
             <div class="product-info">
                 <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">
-                    ${item.category}
+                    ${safeCategory}
                 </div>
 
-                <h3 class="product-title" title="${item.title}">${item.title}</h3>
+                <h3 class="product-title" title="${safeTitle}">${safeTitle}</h3>
                 
                 <div class="price-row">
                     <span class="current-price">$${item.price.toFixed(2)}</span>
@@ -523,7 +473,7 @@ function renderStoreProducts() {
         `;
     }).join('');
 
-    updateProductJsonLd(storeGarments);
+    updateProductJsonLd(storeGarments.filter(item => item.tryOnEnabled));
     notifyAnywearDOMUpdate();
 }
 
@@ -568,9 +518,9 @@ function ensureFeaturedProductModal() {
     modal.addEventListener('click', event => {
         if (event.target.closest('[data-featured-close="true"]')) {
             closeFeaturedProductModal();
+            if (getFocusedProductId()) void showFullCatalog();
         } else if (event.target.closest('[data-featured-explore="true"]')) {
-            closeFeaturedProductModal();
-            showFullCatalog();
+            void showFullCatalog();
         }
     });
     return modal;
@@ -604,10 +554,14 @@ function showFeaturedProductModal(productId) {
     const whatsapp = modal.querySelector('#featured-product-whatsapp');
     const fallbackImage = 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=900';
 
-    imageWrap.dataset.productId = targetGarment.id;
-    imageWrap.dataset.modelId = targetGarment.anywearModelId || targetGarment.id;
-    modal.querySelector('.modal-anywear-wrap').dataset.productId = targetGarment.id;
-    modal.querySelector('.modal-anywear-wrap').dataset.modelId = targetGarment.anywearModelId || targetGarment.id;
+    const tryOnEnabled = targetGarment.tryOnEnabled !== false;
+    const tryOnWrap = modal.querySelector('.modal-anywear-wrap');
+    imageWrap.dataset.tryOnEnabled = String(tryOnEnabled);
+    imageWrap.dataset.productId = tryOnEnabled ? targetGarment.id : '';
+    imageWrap.dataset.modelId = tryOnEnabled ? (targetGarment.anywearModelId || targetGarment.id) : '';
+    tryOnWrap.hidden = !tryOnEnabled;
+    tryOnWrap.dataset.productId = tryOnEnabled ? targetGarment.id : '';
+    tryOnWrap.dataset.modelId = tryOnEnabled ? (targetGarment.anywearModelId || targetGarment.id) : '';
     image.src = targetGarment.image || fallbackImage;
     image.alt = targetGarment.title;
     image.onerror = () => {
@@ -616,15 +570,15 @@ function showFeaturedProductModal(productId) {
     };
     category.textContent = targetGarment.category || 'Apparel';
     title.textContent = targetGarment.title;
-    description.textContent = `Premium ${targetGarment.category || 'apparel'} with virtual try-on available.`;
+    description.textContent = targetGarment.description || `Premium ${targetGarment.category || 'apparel'}.`;
     price.textContent = `$${targetGarment.price.toFixed(2)}`;
     const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering/trying on: ${targetGarment.title} ($${targetGarment.price.toFixed(2)}).`);
     whatsapp.href = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
 
     // Keep the modal card machine-readable for Anywear's product scanner.
     const dialog = modal.querySelector('.featured-product-dialog');
-    dialog.dataset.productId = targetGarment.id;
-    dialog.dataset.modelId = targetGarment.anywearModelId || targetGarment.id;
+    dialog.dataset.productId = tryOnEnabled ? targetGarment.id : '';
+    dialog.dataset.modelId = tryOnEnabled ? (targetGarment.anywearModelId || targetGarment.id) : '';
     modal.classList.add('active');
     modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('featured-product-modal-open');
@@ -708,7 +662,14 @@ function renderSpotlightView(garmentId) {
 }
 
 // "View Full Catalog" Toggle Action
-function showFullCatalog() {
+async function showFullCatalog() {
+    if (!fullCatalogLoaded) {
+        const loaded = await fetchAndRenderGarments({ fullCatalog: true });
+        if (!loaded) return;
+    }
+    const url = new URL(window.location.href);
+    ['garment', 'garment_id', 'item_id', 'ref', 'product', 'item', 'id'].forEach(key => url.searchParams.delete(key));
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
     closeFeaturedProductModal();
     const spotlightSection = document.getElementById('garment-spotlight-section');
     const productsSection = document.getElementById('products');
@@ -758,24 +719,43 @@ async function submitLeadGate(e) {
         statusMsg.innerHTML = msg;
     }
 
-    // 1. Format phone to strict E.164 standard
-    const formattedPhone = formatToE164(rawPhone);
+    // Local Somaliland format validation for temporary storefront testing.
+    // Strip only the requested separators, then accept these exact formats.
+    const sanitizedPhone = rawPhone.replace(/[\s-]/g, '').replace(/^\++/, '');
+    const somalilandPhonePattern = /^(25263\d{7}|063\d{7}|63\d{7})$/;
+    if (!somalilandPhonePattern.test(sanitizedPhone)) {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+            submitBtn.innerHTML = '<span>Unlock Storefront & Try-On →</span>';
+        }
+        setStatus('Please enter a valid Somaliland number starting with 063, 63, or 25263.', 'error');
+        if (phoneInput) {
+            phoneInput.style.borderColor = '#dc2626';
+            phoneInput.focus();
+        }
+        return;
+    }
 
-    // 2. Real-Time WhatsApp Verification via Supabase Edge Function ('verify-ekyc')
+    // Convert the accepted local formats to E.164 before storing the lead.
+    const formattedPhone = formatToE164(sanitizedPhone);
+
+    // TEMPORARY LOCAL TEST BYPASS: do not invoke the verify-ekyc Edge Function.
+    // Restore verifyWhatsAppPhoneEkyc(formattedPhone) before production use.
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.style.opacity = '0.75';
-        submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Verifying WhatsApp...</span>';
+        submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Unlocking access...</span>';
     }
-    setStatus('<i class="fa-solid fa-spinner fa-spin"></i> Checking WhatsApp account with eKYC Pro...', 'info');
-
-    let ekycResult;
-    try {
-        ekycResult = await verifyWhatsAppPhoneEkyc(formattedPhone);
-    } catch (err) {
-        console.warn('eKYC check error caught:', err);
-        ekycResult = { verified: false, registered: null, checkId: null, formattedPhone, isFallback: true, error: err.message };
-    }
+    setStatus('<i class="fa-solid fa-check"></i> Local number format accepted. Unlocking test access...', 'success');
+    const ekycResult = {
+        verified: true,
+        registered: true,
+        checkId: 'local-test-bypass',
+        formattedPhone,
+        isFallback: false,
+        localTestBypass: true
+    };
 
     // =========================================================================
     // STRICT 3-STATE SUBMIT HANDLER
@@ -1121,6 +1101,7 @@ function closeTryOnModal() {
     if (window.Anywear && typeof window.Anywear.close === 'function') {
         window.Anywear.close();
     }
+    if (getFocusedProductId()) void showFullCatalog();
 }
 
 // Backwards-compatible alias for any legacy call
@@ -1138,6 +1119,12 @@ if (typeof window !== 'undefined') {
 
 // Category Filter Helper (Apparel Only)
 function filterCategory(cat) {
+    if (!fullCatalogLoaded) {
+        void showFullCatalog().then(() => {
+            if (fullCatalogLoaded) filterCategory(cat);
+        });
+        return;
+    }
     if (!cat || cat === 'ALL') {
         storeGarments = allStoreGarments.filter(g => !isFootwearItem(g));
     } else {
@@ -1183,6 +1170,10 @@ window.onload = async function() {
     await initShopBranding();
     await fetchAndRenderGarments();
     bindProductFocusHandlers();
+    document.addEventListener('click', event => {
+        const link = event.target.closest('a[href^="#"]');
+        if (link && getFocusedProductId() && !fullCatalogLoaded) void showFullCatalog();
+    });
 
     const focusedProductId = getFocusedProductId();
     

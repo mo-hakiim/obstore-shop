@@ -19,26 +19,8 @@
     <!-- Supabase JS Client CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- Product Catalog JSON-LD Schema for Anywear AI Try-On Widget Scanning -->
-    <script type="application/ld+json" id="decart-product-schema">
-    {
-      "@context": "https://schema.org",
-      "@type": "Product",
-      "name": "GOBSTORE Luxury Men's Apparel Collection",
-      "image": "https://images.unsplash.com/photo-1617137984095-74e4e5e3613f?auto=format&fit=crop&q=80&w=1200",
-      "description": "Premium Quality Men's Tailored Shirts, Pants, and Luxury Apparel with 3D Virtual Try-On.",
-      "brand": {
-        "@type": "Brand",
-        "name": "GOBSTORE"
-      },
-      "offers": {
-        "@type": "AggregateOffer",
-        "priceCurrency": "USD",
-        "lowPrice": "49.00",
-        "highPrice": "120.00"
-      }
-    }
-    </script>
+    <!-- Product JSON-LD is populated from active Supabase catalog rows. -->
+    <script type="application/ld+json" id="decart-product-schema">{"@context":"https://schema.org","@graph":[]}</script>
 </head>
 <body class="gate-active">
 
@@ -166,101 +148,7 @@
                 <a href="#products" class="view-all-link">View All Products →</a>
             </div>
 
-            <div id="store-products-grid" class="products-grid">
-                <!-- Dynamically Rendered Product Cards with Initial Fallback Items for Anywear Layout Scan -->
-                <div id="product-card-grm-6" class="product-card" data-product-id="grm-6" data-model-id="grm-6">
-                    <div class="product-img-wrap" style="position: relative; overflow: visible;">
-                        <span class="discount-badge">-20%</span>
-                        <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')"><i class="fa-regular fa-heart"></i></button>
-                        <img src="https://pnbozvyqautludmogpjs.supabase.co/storage/v1/object/public/garment-images/gobsrote/shrit.jfif" alt="Tailored Shirt" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1596755094514-f87e34085b2c?auto=format&fit=crop&q=80&w=600'">
-                    </div>
-                    <div class="product-info">
-                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">Shirts</div>
-                        <h3 class="product-title" title="Tailored Shirt">Tailored Shirt</h3>
-                        <div class="price-row"><span class="current-price">$55.00</span><span class="original-price">$68.75</span></div>
-                        <div class="rating-row"><div class="stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i></div><span class="review-count">(42)</span></div>
-                        <div class="color-dots"><span class="color-dot" style="background-color: #111111"></span><span class="color-dot" style="background-color: #c49a6c"></span><span class="color-dot" style="background-color: #4b5563"></span></div>
-                        <a href="https://wa.me/252634410293?text=Hi%20GOBSTORE%2C%20I%20am%20interested%20in%20ordering%3A%20Tailored%20Shirt%20(%2455.00)" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn"><i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp</a>
-                    </div>
-                </div>
-
-                <div id="product-card-grm-7" class="product-card" data-product-id="grm-7" data-model-id="grm-7">
-                    <div class="product-img-wrap" style="position: relative; overflow: visible;">
-                        <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')"><i class="fa-regular fa-heart"></i></button>
-                        <img src="https://pnbozvyqautludmogpjs.supabase.co/storage/v1/object/public/garment-images/gobsrote/shirt2.jfif" alt="Classic Button-Up Shirt II" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&q=80&w=600'">
-                    </div>
-                    <div class="product-info">
-                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">Shirts</div>
-                        <h3 class="product-title" title="Classic Button-Up Shirt II">Classic Button-Up Shirt II</h3>
-                        <div class="price-row"><span class="current-price">$58.00</span></div>
-                        <div class="rating-row"><div class="stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i></div><span class="review-count">(53)</span></div>
-                        <div class="color-dots"><span class="color-dot" style="background-color: #111111"></span><span class="color-dot" style="background-color: #c49a6c"></span><span class="color-dot" style="background-color: #4b5563"></span></div>
-                        <a href="https://wa.me/252634410293?text=Hi%20GOBSTORE%2C%20I%20am%20interested%20in%20ordering%3A%20Classic%20Button-Up%20Shirt%20II%20(%2458.00)" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn"><i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp</a>
-                    </div>
-                </div>
-
-                <div id="product-card-grm-8" class="product-card" data-product-id="grm-8" data-model-id="grm-8">
-                    <div class="product-img-wrap" style="position: relative; overflow: visible;">
-                        <span class="discount-badge">-20%</span>
-                        <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')"><i class="fa-regular fa-heart"></i></button>
-                        <img src="https://pnbozvyqautludmogpjs.supabase.co/storage/v1/object/public/garment-images/gobsrote/shirt3.jfif" alt="Formal Dress Shirt III" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&q=80&w=600'">
-                    </div>
-                    <div class="product-info">
-                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">Shirts</div>
-                        <h3 class="product-title" title="Formal Dress Shirt III">Formal Dress Shirt III</h3>
-                        <div class="price-row"><span class="current-price">$62.00</span><span class="original-price">$77.50</span></div>
-                        <div class="rating-row"><div class="stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i></div><span class="review-count">(64)</span></div>
-                        <div class="color-dots"><span class="color-dot" style="background-color: #111111"></span><span class="color-dot" style="background-color: #c49a6c"></span><span class="color-dot" style="background-color: #4b5563"></span></div>
-                        <a href="https://wa.me/252634410293?text=Hi%20GOBSTORE%2C%20I%20am%20interested%20in%20ordering%3A%20Formal%20Dress%20Shirt%20III%20(%2462.00)" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn"><i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp</a>
-                    </div>
-                </div>
-
-                <div id="product-card-grm-9" class="product-card" data-product-id="grm-9" data-model-id="grm-9">
-                    <div class="product-img-wrap" style="position: relative; overflow: visible;">
-                        <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')"><i class="fa-regular fa-heart"></i></button>
-                        <img src="https://pnbozvyqautludmogpjs.supabase.co/storage/v1/object/public/garment-images/gobsrote/pants.jfif" alt="Slim Fit Pants" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&q=80&w=600'">
-                    </div>
-                    <div class="product-info">
-                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">Pants</div>
-                        <h3 class="product-title" title="Slim Fit Pants">Slim Fit Pants</h3>
-                        <div class="price-row"><span class="current-price">$65.00</span></div>
-                        <div class="rating-row"><div class="stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i></div><span class="review-count">(75)</span></div>
-                        <div class="color-dots"><span class="color-dot" style="background-color: #111111"></span><span class="color-dot" style="background-color: #c49a6c"></span><span class="color-dot" style="background-color: #4b5563"></span></div>
-                        <a href="https://wa.me/252634410293?text=Hi%20GOBSTORE%2C%20I%20am%20interested%20in%20ordering%3A%20Slim%20Fit%20Pants%20(%2465.00)" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn"><i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp</a>
-                    </div>
-                </div>
-
-                <div id="product-card-grm-10" class="product-card" data-product-id="grm-10" data-model-id="grm-10">
-                    <div class="product-img-wrap" style="position: relative; overflow: visible;">
-                        <span class="discount-badge">-20%</span>
-                        <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')"><i class="fa-regular fa-heart"></i></button>
-                        <img src="https://pnbozvyqautludmogpjs.supabase.co/storage/v1/object/public/garment-images/gobsrote/pants%202.jfif" alt="Chino Trousers II" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1473966968600-fa801b869a1a?auto=format&fit=crop&q=80&w=600'">
-                    </div>
-                    <div class="product-info">
-                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">Pants</div>
-                        <h3 class="product-title" title="Chino Trousers II">Chino Trousers II</h3>
-                        <div class="price-row"><span class="current-price">$68.00</span><span class="original-price">$85.00</span></div>
-                        <div class="rating-row"><div class="stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i></div><span class="review-count">(86)</span></div>
-                        <div class="color-dots"><span class="color-dot" style="background-color: #111111"></span><span class="color-dot" style="background-color: #c49a6c"></span><span class="color-dot" style="background-color: #4b5563"></span></div>
-                        <a href="https://wa.me/252634410293?text=Hi%20GOBSTORE%2C%20I%20am%20interested%20in%20ordering%3A%20Chino%20Trousers%20II%20(%2468.00)" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn"><i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp</a>
-                    </div>
-                </div>
-
-                <div id="product-card-grm-11" class="product-card" data-product-id="grm-11" data-model-id="grm-11">
-                    <div class="product-img-wrap" style="position: relative; overflow: visible;">
-                        <button class="wishlist-btn" title="Add to Wishlist" onclick="event.stopPropagation(); this.classList.toggle('active')"><i class="fa-regular fa-heart"></i></button>
-                        <img src="https://pnbozvyqautludmogpjs.supabase.co/storage/v1/object/public/garment-images/gobsrote/pants3.jfif" alt="Formal Trousers III" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1506629082955-511b1aa562c8?auto=format&fit=crop&q=80&w=600'">
-                    </div>
-                    <div class="product-info">
-                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">Pants</div>
-                        <h3 class="product-title" title="Formal Trousers III">Formal Trousers III</h3>
-                        <div class="price-row"><span class="current-price">$72.00</span></div>
-                        <div class="rating-row"><div class="stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i></div><span class="review-count">(97)</span></div>
-                        <div class="color-dots"><span class="color-dot" style="background-color: #111111"></span><span class="color-dot" style="background-color: #c49a6c"></span><span class="color-dot" style="background-color: #4b5563"></span></div>
-                        <a href="https://wa.me/252634410293?text=Hi%20GOBSTORE%2C%20I%20am%20interested%20in%20ordering%3A%20Formal%20Trousers%20III%20(%2472.00)" target="_blank" onclick="event.stopPropagation()" class="whatsapp-inquire-btn"><i class="fa-brands fa-whatsapp"></i> Inquire on WhatsApp</a>
-                    </div>
-                </div>
-            </div>
+            <div id="store-products-grid" class="products-grid"></div>
         </section>
 
         <!-- DUAL FEATURE PROMO BANNERS -->
