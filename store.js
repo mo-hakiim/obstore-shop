@@ -8,6 +8,73 @@
  * ==========================================================================
  */
 
+const FREE_BETA_NOTICE = Object.freeze({
+    language: 'en',
+    messages: Object.freeze({
+        en: 'Free beta: virtual try-on is free here. You may wait a few seconds in a short line, and each person gets a limited number of tries. You do NOT need to pay anything. Ignore the VIP upgrade offer.',
+        so: 'Tijaabo bilaash ah: tijaabinta dharka waa bilaash. Waxaa laga yaabaa inaad sugto dhowr ilbiriqsi, qof walbana waxa u furan tiro xaddidan oo tijaabo ah. Looma baahna inaad bixiso lacag. Iska dhaaf bixinta VIP.'
+    }),
+    dismissalKey: 'gobstore_free_beta_notice_dismissed'
+});
+let leadGateHasBeenPassed = false;
+let freeBetaNoticeDismissed = false;
+
+function getFreeBetaNoticeText() {
+    return FREE_BETA_NOTICE.messages[FREE_BETA_NOTICE.language] || FREE_BETA_NOTICE.messages.en;
+}
+
+function dismissFreeBetaNotice() {
+    freeBetaNoticeDismissed = true;
+    const banner = document.getElementById('free-beta-toast');
+    if (banner) banner.hidden = true;
+    try {
+        localStorage.setItem(FREE_BETA_NOTICE.dismissalKey, 'true');
+    } catch (error) {
+        // Keep the current page usable when storage is blocked or unavailable.
+    }
+}
+
+function syncFreeBetaNoticeUi() {
+    const banner = document.getElementById('free-beta-toast');
+    const bannerText = document.getElementById('free-beta-toast-text');
+    const leadGate = document.getElementById('lead-modal');
+    const gateIsOpen = Boolean(leadGate && (leadGate.classList.contains('active') || getComputedStyle(leadGate).display !== 'none'));
+
+    document.querySelectorAll('.free-beta-inline').forEach(note => {
+        note.textContent = getFreeBetaNoticeText();
+        note.classList.toggle('is-visible', leadGateHasBeenPassed);
+        note.setAttribute('aria-hidden', String(!leadGateHasBeenPassed));
+    });
+
+    if (!leadGateHasBeenPassed || gateIsOpen || !banner || freeBetaNoticeDismissed) return;
+    if (bannerText) bannerText.textContent = getFreeBetaNoticeText();
+    let wasDismissed = false;
+    try {
+        wasDismissed = localStorage.getItem(FREE_BETA_NOTICE.dismissalKey) === 'true';
+    } catch (error) {
+        // Storage is optional; show the banner and allow an in-memory dismissal.
+    }
+    if (!wasDismissed) banner.hidden = false;
+}
+
+function observeLeadGateForBetaNotice() {
+    const leadGate = document.getElementById('lead-modal');
+    if (!leadGate) return;
+    const observer = new MutationObserver(() => {
+        const gateIsOpen = leadGate.classList.contains('active') || getComputedStyle(leadGate).display !== 'none';
+        if (!gateIsOpen) leadGateHasBeenPassed = true;
+        syncFreeBetaNoticeUi();
+    });
+    observer.observe(leadGate, { attributes: true, attributeFilter: ['class', 'style'] });
+    window.addEventListener('load', () => {
+        const gateIsOpen = leadGate.classList.contains('active') || getComputedStyle(leadGate).display !== 'none';
+        if (!gateIsOpen) leadGateHasBeenPassed = true;
+        syncFreeBetaNoticeUi();
+    }, { once: true });
+}
+
+observeLeadGateForBetaNotice();
+
 const SUPABASE_PROJECT_REF = 'pnbozvyqautludmogpjs';
 const SUPABASE_URL = `https://${SUPABASE_PROJECT_REF}.supabase.co`;
 const SUPABASE_DEFAULT_URL = SUPABASE_URL;
@@ -411,6 +478,7 @@ function renderStoreProducts() {
         `;
         updateProductJsonLd([]);
         notifyAnywearDOMUpdate();
+        syncFreeBetaNoticeUi();
         return;
     }
 
@@ -437,6 +505,7 @@ function renderStoreProducts() {
 
                 <img src="${safeImage}" alt="${safeTitle}" loading="eager" decoding="async" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
             </div>
+            <p class="free-beta-inline" aria-hidden="true"></p>
 
             <div class="product-info">
                 <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #c49a6c; margin-bottom: 4px;">
@@ -475,6 +544,7 @@ function renderStoreProducts() {
 
     updateProductJsonLd(storeGarments.filter(item => item.tryOnEnabled));
     notifyAnywearDOMUpdate();
+    syncFreeBetaNoticeUi();
 }
 
 // ==========================================================================
@@ -498,6 +568,7 @@ function ensureFeaturedProductModal() {
                     <img id="featured-product-image" src="" alt="" loading="eager" decoding="async">
                     <div class="modal-anywear-wrap" data-anywear="true"></div>
                 </div>
+                <p class="free-beta-inline featured-product-beta-note" aria-hidden="true"></p>
                 <div class="featured-product-details">
                     <p id="featured-product-category" class="featured-product-category"></p>
                     <h2 id="featured-product-title"></h2>
@@ -583,6 +654,7 @@ function showFeaturedProductModal(productId) {
     modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('featured-product-modal-open');
     notifyAnywearDOMUpdate();
+    syncFreeBetaNoticeUi();
     setTimeout(notifyAnywearDOMUpdate, 400);
 }
 
@@ -640,13 +712,14 @@ function renderSpotlightView(garmentId) {
                 $${targetGarment.price.toFixed(2)}
             </p>
 
-            <div class="product-img-wrap" style="width: 100%; height: auto; min-height: 240px; border-radius: 20px; overflow: visible; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative;">
+            <div class="product-img-wrap" data-product-id="${escapeHtml(targetGarment.id)}" data-model-id="${escapeHtml(targetGarment.anywearModelId || targetGarment.id)}" style="width: 100%; height: auto; min-height: 240px; border-radius: 20px; overflow: visible; box-shadow: 0 10px 30px rgba(0,0,0,0.08); background: #f8f8f8; position: relative;">
                 <img id="spotlight-garment-image" 
                      src="${targetGarment.image}" 
                      alt="${targetGarment.title}" 
                      style="width: 100%; height: auto; max-height: 520px; object-fit: cover; display: block;"
                      onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=600'">
             </div>
+            <p class="free-beta-inline" aria-hidden="true"></p>
 
             <div style="margin-top: 20px;">
                 <a href="${waLink}" target="_blank" class="whatsapp-inquire-btn" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 28px; border-radius: 12px; font-size: 13px; font-weight: 700; text-decoration: none;">
@@ -659,6 +732,7 @@ function renderSpotlightView(garmentId) {
     spotlightSection.style.display = 'block';
     spotlightSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     notifyAnywearDOMUpdate();
+    syncFreeBetaNoticeUi();
 }
 
 // "View Full Catalog" Toggle Action
@@ -1116,6 +1190,21 @@ if (typeof window !== 'undefined') {
     window.openTryOnModal = openTryOnModal;
     window.notifyAnywearDOMUpdate = notifyAnywearDOMUpdate;
 }
+
+// Delegate clicks because Anywear and product views add their buttons after
+// rendering. Let the widget's own event continue normally; this only supplies
+// the active product context to the public Anywear opener.
+document.addEventListener('click', event => {
+    const tryOnButton = event.target.closest('.try-on-btn, .tryon-badge-btn');
+    if (!tryOnButton) return;
+    const productContext = tryOnButton.closest('[data-product-id][data-model-id]') ||
+        tryOnButton.closest('.product-card[data-product-id]') ||
+        tryOnButton.closest('.product-img-wrap[data-product-id]') ||
+        document.querySelector('#featured-product-modal.active .featured-product-dialog[data-product-id]');
+    const productId = productContext?.dataset.productId;
+    const modelId = productContext?.dataset.modelId || productId;
+    if (productId && productId !== 'false') launchVirtualTryOn(productId, modelId);
+});
 
 // Category Filter Helper (Apparel Only)
 function filterCategory(cat) {

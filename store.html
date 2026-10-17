@@ -57,6 +57,12 @@
         </div>
     </div>
 
+    <!-- Fixed-position first-visit beta notice; shown only after the lead gate closes. -->
+    <aside id="free-beta-toast" class="free-beta-toast" aria-live="polite" aria-label="Free beta notice" hidden>
+        <p id="free-beta-toast-text" class="free-beta-toast-text"></p>
+        <button type="button" class="free-beta-dismiss" onclick="dismissFreeBetaNotice()" aria-label="Dismiss free beta notice">×</button>
+    </aside>
+
     <!-- ==================== MAIN STORE CONTENT (BLURRED INITIALLY) ==================== -->
     <div id="main-store-content" class="blurred-gate">
         
