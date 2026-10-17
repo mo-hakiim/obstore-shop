@@ -15,6 +15,7 @@ const FREE_BETA_NOTICE = Object.freeze({
         so: 'Tijaabo bilaash ah: tijaabinta dharka waa bilaash. Waxaa laga yaabaa inaad sugto dhowr ilbiriqsi, qof walbana waxa u furan tiro xaddidan oo tijaabo ah. Looma baahna inaad bixiso lacag. Iska dhaaf bixinta VIP.'
     })
 });
+const GOBSTORE_OWNER_WHATSAPP = '252636647941';
 let leadGateHasBeenPassed = false;
 
 function getFreeBetaNoticeText() {
@@ -135,8 +136,8 @@ function getValidStoreId(candidateId) {
 let currentShop = {
     id: null,
     name: 'gobstore',
-    phone: '+252634410293',
-    owner_whatsapp: '+252634410293',
+    phone: `+${GOBSTORE_OWNER_WHATSAPP}`,
+    owner_whatsapp: `+${GOBSTORE_OWNER_WHATSAPP}`,
     accentColor: '#c49a6c'
 };
 let storeGarments = [];
@@ -253,8 +254,8 @@ async function initShopBranding() {
                 currentShop = {
                     id: found.id,
                     name: found.name,
-                    phone: found.owner_whatsapp || found.phone || '+252634410293',
-                    owner_whatsapp: found.owner_whatsapp || found.phone || '+252634410293',
+                    phone: found.owner_whatsapp || found.phone || `+${GOBSTORE_OWNER_WHATSAPP}`,
+                    owner_whatsapp: found.owner_whatsapp || found.phone || `+${GOBSTORE_OWNER_WHATSAPP}`,
                     accentColor: found.accent_color || '#c49a6c'
                 };
             }
@@ -459,7 +460,7 @@ function renderStoreProducts() {
     container.innerHTML = storeGarments.map(item => {
         const isTarget = (garmentId && (String(item.id) === String(garmentId) || item.title.toLowerCase().includes(garmentId.toLowerCase())));
         const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering/trying on: ${item.title} ($${item.price.toFixed(2)}).`);
-        const waLink = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
+        const waLink = `https://wa.me/${GOBSTORE_OWNER_WHATSAPP}?text=${waMessage}`;
         const modelId = item.anywearModelId || item.id;
         const enabled = item.tryOnEnabled !== false;
         const safeTitle = escapeHtml(item.title);
@@ -616,7 +617,7 @@ function showFeaturedProductModal(productId) {
     description.textContent = targetGarment.description || `Premium ${targetGarment.category || 'apparel'}.`;
     price.textContent = `$${targetGarment.price.toFixed(2)}`;
     const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering/trying on: ${targetGarment.title} ($${targetGarment.price.toFixed(2)}).`);
-    whatsapp.href = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
+    whatsapp.href = `https://wa.me/${GOBSTORE_OWNER_WHATSAPP}?text=${waMessage}`;
 
     // Keep the modal card machine-readable for Anywear's product scanner.
     const dialog = modal.querySelector('.featured-product-dialog');
@@ -666,7 +667,7 @@ function renderSpotlightView(garmentId) {
     if (heroSection) heroSection.style.display = 'none';
 
     const waMessage = encodeURIComponent(`Hi ${currentShop.name}, I am interested in ordering: ${targetGarment.title} ($${targetGarment.price.toFixed(2)}).`);
-    const waLink = `https://wa.me/${(currentShop.owner_whatsapp || currentShop.phone).replace(/[^0-9]/g, '')}?text=${waMessage}`;
+    const waLink = `https://wa.me/${GOBSTORE_OWNER_WHATSAPP}?text=${waMessage}`;
 
     // Render ONLY the scanned garment prominently (clean UI: image, title, price, no custom try-on buttons)
     // The official Anywear live widget will automatically recognize and overlay on the image.
