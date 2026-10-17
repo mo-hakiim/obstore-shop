@@ -254,11 +254,16 @@ body:not(.gate-active) .featured-product-image-wrap .anywear-button {
 }
 
 body:not(.gate-active) .featured-product-image-wrap .vton-btn,
-body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap .vton-btn {
-    z-index: 96 !important;
+body:not(.gate-active) .featured-product-image-wrap .try-on-btn,
+body:not(.gate-active) .featured-product-image-wrap [data-vton],
+body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap .vton-btn,
+body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap .try-on-btn,
+body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap [data-vton] {
+    z-index: 9999 !important;
     pointer-events: auto !important;
     visibility: visible !important;
     opacity: 1 !important;
+    touch-action: manipulation;
 }
 
 .featured-product-details {
@@ -1321,5 +1326,16 @@ body.featured-product-modal-open {
     body:not(.gate-active) .product-img-wrap .try-on-badge,
     body:not(.gate-active) .product-img-wrap .tryon-badge-btn {
         z-index: 90 !important;
+    }
+
+    body:not(.gate-active) .featured-product-image-wrap .vton-btn,
+    body:not(.gate-active) .featured-product-image-wrap .try-on-btn,
+    body:not(.gate-active) .featured-product-image-wrap [data-vton],
+    body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap .vton-btn,
+    body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap .try-on-btn,
+    body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap [data-vton] {
+        z-index: 9999 !important;
+        pointer-events: auto !important;
+        touch-action: manipulation;
     }
 }

@@ -1140,7 +1140,9 @@ function launchVirtualTryOn(productId, anywearModelId) {
     console.log(`Anywear Live Widget activated for product ${productId || anywearModelId}`);
     if (window.Anywear && typeof window.Anywear.open === 'function') {
         window.Anywear.open({ productId: productId || anywearModelId });
+        return true;
     }
+    return false;
 }
 
 function closeTryOnModal() {
@@ -1163,20 +1165,41 @@ if (typeof window !== 'undefined') {
     window.notifyAnywearDOMUpdate = notifyAnywearDOMUpdate;
 }
 
-// Delegate clicks because Anywear and product views add their buttons after
-// rendering. Let the widget's own event continue normally; this only supplies
-// the active product context to the public Anywear opener.
-document.addEventListener('click', event => {
-    const tryOnButton = event.target.closest('.try-on-btn, .tryon-badge-btn, .vton-btn');
+// Anywear inserts its badge after render. Handle desktop clicks and touch
+// pointer starts so the public API opens the matching garment immediately.
+const recentTryOnTouchActivations = new WeakMap();
+function handleDelegatedTryOnActivation(event) {
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const tryOnButton = target?.closest('.try-on-btn, .tryon-badge-btn, .vton-btn, [data-vton]');
     if (!tryOnButton) return;
+
+    const isTouchActivation = event.type === 'touchstart' || (event.type === 'pointerdown' && event.pointerType === 'touch');
+    if (event.type === 'pointerdown' && !isTouchActivation) return;
+    if (event.type === 'click') {
+        const lastTouchActivation = recentTryOnTouchActivations.get(tryOnButton) || 0;
+        if (Date.now() - lastTouchActivation < 900) return;
+    }
+
     const productContext = tryOnButton.closest('[data-product-id][data-model-id]') ||
         tryOnButton.closest('.product-card[data-product-id]') ||
         tryOnButton.closest('.product-img-wrap[data-product-id]') ||
         document.querySelector('#featured-product-modal.active .featured-product-dialog[data-product-id]');
     const productId = productContext?.dataset.productId;
     const modelId = productContext?.dataset.modelId || productId;
-    if (productId && productId !== 'false') launchVirtualTryOn(productId, modelId);
-}, true);
+    if (!productId || productId === 'false') return;
+
+    const opened = launchVirtualTryOn(productId, modelId);
+    if (isTouchActivation && opened) {
+        recentTryOnTouchActivations.set(tryOnButton, Date.now());
+        if (event.cancelable) event.preventDefault();
+    }
+}
+
+document.addEventListener('click', handleDelegatedTryOnActivation, true);
+document.addEventListener('pointerdown', handleDelegatedTryOnActivation, true);
+if (typeof window !== 'undefined' && !window.PointerEvent) {
+    document.addEventListener('touchstart', handleDelegatedTryOnActivation, { capture: true, passive: false });
+}
 
 // Category Filter Helper (Apparel Only)
 function filterCategory(cat) {
