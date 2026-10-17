@@ -1261,7 +1261,15 @@ window.onload = async function() {
     bindProductFocusHandlers();
     document.addEventListener('click', event => {
         const link = event.target.closest('a[href^="#"]');
-        if (link && getFocusedProductId() && !fullCatalogLoaded) void showFullCatalog();
+        if (
+            link &&
+            link.hash === '#products' &&
+            !link.closest('#featured-product-modal') &&
+            getFocusedProductId() &&
+            !fullCatalogLoaded
+        ) {
+            void showFullCatalog();
+        }
     });
 
     const focusedProductId = getFocusedProductId();
@@ -1271,6 +1279,7 @@ window.onload = async function() {
 
     if (!isCaptured) {
         // Requirement 1: If NOT set, lock/blur product interaction and trigger the VIP Lead-Capture form immediately upon landing
+        if (focusedProductId) showFeaturedProductModal(focusedProductId);
         openLeadModal(focusedProductId);
     } else {
         // Requirement 2: Already captured — bypass lead gate completely

@@ -301,6 +301,14 @@ body:not(.gate-active) .featured-product-image-wrap .anywear-button {
     opacity: 1 !important;
 }
 
+body:not(.gate-active) .featured-product-image-wrap .vton-btn,
+body:not(.gate-active) .featured-product-image-wrap .modal-anywear-wrap .vton-btn {
+    z-index: 96 !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
 .featured-product-details {
     padding: 22px 4px 0;
     text-align: center;
