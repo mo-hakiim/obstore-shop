@@ -13,48 +13,20 @@ const FREE_BETA_NOTICE = Object.freeze({
     messages: Object.freeze({
         en: 'Free beta: virtual try-on is free here. You may wait a few seconds in a short line, and each person gets a limited number of tries. You do NOT need to pay anything. Ignore the VIP upgrade offer.',
         so: 'Tijaabo bilaash ah: tijaabinta dharka waa bilaash. Waxaa laga yaabaa inaad sugto dhowr ilbiriqsi, qof walbana waxa u furan tiro xaddidan oo tijaabo ah. Looma baahna inaad bixiso lacag. Iska dhaaf bixinta VIP.'
-    }),
-    dismissalKey: 'gobstore_free_beta_notice_dismissed'
+    })
 });
 let leadGateHasBeenPassed = false;
-let freeBetaNoticeDismissed = false;
 
 function getFreeBetaNoticeText() {
     return FREE_BETA_NOTICE.messages[FREE_BETA_NOTICE.language] || FREE_BETA_NOTICE.messages.en;
 }
 
-function dismissFreeBetaNotice() {
-    freeBetaNoticeDismissed = true;
-    const banner = document.getElementById('free-beta-toast');
-    if (banner) banner.hidden = true;
-    try {
-        localStorage.setItem(FREE_BETA_NOTICE.dismissalKey, 'true');
-    } catch (error) {
-        // Keep the current page usable when storage is blocked or unavailable.
-    }
-}
-
 function syncFreeBetaNoticeUi() {
-    const banner = document.getElementById('free-beta-toast');
-    const bannerText = document.getElementById('free-beta-toast-text');
-    const leadGate = document.getElementById('lead-modal');
-    const gateIsOpen = Boolean(leadGate && (leadGate.classList.contains('active') || getComputedStyle(leadGate).display !== 'none'));
-
     document.querySelectorAll('.free-beta-inline').forEach(note => {
         note.textContent = getFreeBetaNoticeText();
         note.classList.toggle('is-visible', leadGateHasBeenPassed);
         note.setAttribute('aria-hidden', String(!leadGateHasBeenPassed));
     });
-
-    if (!leadGateHasBeenPassed || gateIsOpen || !banner || freeBetaNoticeDismissed) return;
-    if (bannerText) bannerText.textContent = getFreeBetaNoticeText();
-    let wasDismissed = false;
-    try {
-        wasDismissed = localStorage.getItem(FREE_BETA_NOTICE.dismissalKey) === 'true';
-    } catch (error) {
-        // Storage is optional; show the banner and allow an in-memory dismissal.
-    }
-    if (!wasDismissed) banner.hidden = false;
 }
 
 function observeLeadGateForBetaNotice() {

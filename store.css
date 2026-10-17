@@ -135,55 +135,7 @@ body:not(.gate-active) .product-img-wrap .tryon-badge-btn {
     transform: translateY(0) scale(1);
 }
 
-/* Beta messaging stays in the page UI and reserves no space until unlocked. */
-.free-beta-toast {
-    position: fixed;
-    top: max(88px, calc(env(safe-area-inset-top) + 76px));
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 45;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 30px;
-    align-items: start;
-    gap: 8px;
-    width: min(560px, calc(100vw - 24px));
-    padding: 11px 12px 11px 14px;
-    border: 1px solid rgba(196, 154, 108, 0.38);
-    border-radius: 14px;
-    background: #fffaf4;
-    color: #35291f;
-    box-shadow: 0 8px 24px rgba(17, 17, 17, 0.14);
-}
-
-.free-beta-toast[hidden] {
-    display: none;
-}
-
-.free-beta-toast-text {
-    margin: 0;
-    font-size: 11px;
-    line-height: 1.45;
-    font-weight: 600;
-    overflow-wrap: anywhere;
-}
-
-.free-beta-dismiss {
-    width: 30px;
-    height: 30px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: #5b5149;
-    font: inherit;
-    font-size: 21px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.free-beta-dismiss:hover {
-    background: rgba(196, 154, 108, 0.12);
-}
-
+/* Inline beta messaging reserves its card space to avoid layout shift. */
 .free-beta-inline {
     min-height: 38px;
     margin: 0;
