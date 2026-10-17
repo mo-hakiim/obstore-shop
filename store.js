@@ -1195,7 +1195,7 @@ if (typeof window !== 'undefined') {
 // rendering. Let the widget's own event continue normally; this only supplies
 // the active product context to the public Anywear opener.
 document.addEventListener('click', event => {
-    const tryOnButton = event.target.closest('.try-on-btn, .tryon-badge-btn');
+    const tryOnButton = event.target.closest('.try-on-btn, .tryon-badge-btn, .vton-btn');
     if (!tryOnButton) return;
     const productContext = tryOnButton.closest('[data-product-id][data-model-id]') ||
         tryOnButton.closest('.product-card[data-product-id]') ||
@@ -1204,7 +1204,7 @@ document.addEventListener('click', event => {
     const productId = productContext?.dataset.productId;
     const modelId = productContext?.dataset.modelId || productId;
     if (productId && productId !== 'false') launchVirtualTryOn(productId, modelId);
-});
+}, true);
 
 // Category Filter Helper (Apparel Only)
 function filterCategory(cat) {
